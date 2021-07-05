@@ -316,6 +316,11 @@ typedef std::vector<ReadExtent> ReadExtents;
 
 typedef std::map<uint64_t, uint64_t> ExtentMap;
 
+//typedefs for multiple writes
+typedef std::pair<uint64_t, ceph::bufferlist> WriteExtent; //First argument is the offset, second is the data to write
+typedef std::vector<WriteExtent> WriteExtents;
+
+
 } // namespace io
 } // namespace librbd
 

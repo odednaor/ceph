@@ -486,7 +486,6 @@ template <typename I>
 void AbstractObjectWriteRequest<I>::write_object() {
   I *image_ctx = this->m_ictx;
   ldout(image_ctx->cct, 20) << dendl;
-
   neorados::WriteOp write_op;
   if (m_copyup_enabled) {
     if (m_guarding_migration_write) {
@@ -660,9 +659,15 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   if (this->m_full_object) {
+    cout<<"first branch" <<std::endl;
     wr->write_full(bufferlist{m_write_data});
   } else {
-    wr->write(this->m_object_off, bufferlist{m_write_data});
+    cout<<"second branch" <<std::endl;
+    // wr->write(this->m_object_off, bufferlist{m_write_data});
+    cout << "data: " << m_write_data << std::endl;
+    cout << "extents: " << (*m_extents) << "zzz" << std::endl;
+    wr->write((m_extents->front()).first, bufferlist{(m_extents->front()).second});
+    cout<<"after call" <<std::endl;
   }
   util::apply_op_flags(m_op_flags, 0U, wr);
 }
