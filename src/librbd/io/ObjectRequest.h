@@ -269,20 +269,21 @@ public:
       m_write_data(std::move(data)), m_op_flags(op_flags),
       m_write_flags(write_flags), m_assert_version(assert_version){ 
         WriteExtent extent{object_off, m_write_data};
-        WriteExtents extents{extent};
+        // WriteExtents extents{extent};
         // cout<< "data: " << extent <<std::endl;
-        m_extents = &extents;
-        // cout << "extents: " << (*m_extents) << std::endl;
+        m_extents.push_back(extent);
+        // cout<< "data: " << extent <<std::endl;
+        // cout << "extents: " << m_extents << std::endl;
       }
 
   ObjectWriteRequest(
-      ImageCtxT *ictx, uint64_t object_no, WriteExtents* extents, IOContext io_context, int op_flags,
+      ImageCtxT *ictx, uint64_t object_no, WriteExtents extents, IOContext io_context, int op_flags,
       int write_flags, std::optional<uint64_t> assert_version,
       const ZTracer::Trace &parent_trace, Context *completion, int num)
-      : AbstractObjectWriteRequest<ImageCtxT>(ictx, object_no, (extents->front()).first,
-                                            ((extents->front()).second).length(), io_context, "write",
+      : AbstractObjectWriteRequest<ImageCtxT>(ictx, object_no, extents.front().first,
+                                            extents.front().second.length(), io_context, "write",
                                             parent_trace, completion), m_extents(extents),
-      m_write_data((extents->front()).second), m_op_flags(op_flags),
+      m_write_data(extents.front().second), m_op_flags(op_flags),
       m_write_flags(write_flags), m_assert_version(assert_version) { 
   }
 
@@ -299,7 +300,7 @@ protected:
   void add_write_hint(neorados::WriteOp *wr) override;
 
 private:
-  WriteExtents* m_extents;
+  WriteExtents m_extents;
   ceph::bufferlist m_write_data;
   int m_op_flags;
   int m_write_flags;

@@ -658,18 +658,22 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
-  if (this->m_full_object) {
-    cout<<"first branch" <<std::endl;
-    wr->write_full(bufferlist{m_write_data});
-  } else {
-    cout<<"second branch" <<std::endl;
-    // wr->write(this->m_object_off, bufferlist{m_write_data});
-    cout << "data: " << m_write_data << std::endl;
-    cout << "extents: " << (*m_extents) << "zzz" << std::endl;
-    wr->write((m_extents->front()).first, bufferlist{(m_extents->front()).second});
-    cout<<"after call" <<std::endl;
+  for(auto& extent: m_extents) {
+      // cout << "inside for loop: " << extent << std::endl;    
+    if (this->m_full_object) {
+      // cout<<"first branch" <<std::endl;
+      // wr->write_full(bufferlist{m_write_data});
+      wr->write_full(bufferlist{extent.second});
+    } else {
+      // cout<<"second branch" <<std::endl;
+      // wr->write(this->m_object_off, bufferlist{m_write_data});
+      // cout << "data: " << m_write_data << std::endl;
+      // cout << "extents: " << m_extents << std::endl;
+      wr->write(extent.first, bufferlist{extent.second});
+      // cout<<"after call" <<std::endl;
+    }
+    util::apply_op_flags(m_op_flags, 0U, wr);
   }
-  util::apply_op_flags(m_op_flags, 0U, wr);
 }
 
 template <typename I>
@@ -697,6 +701,8 @@ template <typename I>
 void ObjectWriteSameRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   wr->writesame(this->m_object_off, this->m_object_len,
                 bufferlist{m_write_data});
+  // wr->writesame(this->m_object_off, this->m_object_len,
+                // bufferlist{m_extents.front().second});
   util::apply_op_flags(m_op_flags, 0U, wr);
 }
 
