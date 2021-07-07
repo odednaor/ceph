@@ -658,6 +658,9 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
+  // WriteExtent elem = m_extents.front();
+  // elem.first = (uint64_t)15;
+  // m_extents.push_back(elem);
   for(auto& extent: m_extents) {
       // cout << "inside for loop: " << extent << std::endl;    
     if (this->m_full_object) {

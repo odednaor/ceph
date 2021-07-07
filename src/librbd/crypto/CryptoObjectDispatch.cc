@@ -451,6 +451,7 @@ bool CryptoObjectDispatch<I>::read(
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << *extents << dendl;
+  ldout(cct, 20) << "got here crypto read" << dendl;
   ceph_assert(m_crypto != nullptr);
 
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
@@ -483,15 +484,29 @@ bool CryptoObjectDispatch<I>::write(
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
-
   if (m_crypto->is_aligned(object_off, data.length())) {
     auto r = m_crypto->encrypt(
             &data,
             io::util::get_file_offset(m_image_ctx, object_no, object_off));
-    *dispatch_result = r == 0 ? io::DISPATCH_RESULT_CONTINUE
-                              : io::DISPATCH_RESULT_COMPLETE;
-    on_dispatched->complete(r);
+    // *dispatch_result = r == 0 ? io::DISPATCH_RESULT_CONTINUE
+    //                           : io::DISPATCH_RESULT_COMPLETE;
+    if(r != 0) {
+      on_dispatched->complete(r);
+    }
+    else {
+      *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
+      ldout(cct, 20) << "aligned crypto dispatch" << dendl;
+      auto req = io::ObjectDispatchSpec::create_write_extents( // This call creates a new write request and this request is started at the layer following the second argument of the call
+            m_image_ctx,
+            librbd::io::OBJECT_DISPATCH_LAYER_SCHEDULER, // One layer after crypto, need to change methods
+            object_no, object_off, std::move(data), io_context, op_flags, write_flags,
+            assert_version, 0, parent_trace, on_dispatched);
+      // ldout(cct, 20) << "sending request" << dendl;
+      req->send();
+    }
+    // on_dispatched->complete(r);
   } else {
+    ldout(cct, 20) << "unaligned crypto dispatch" << dendl;
     *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
     auto req = new C_UnalignedObjectWriteRequest<I>(
             m_image_ctx, m_crypto, object_no, object_off, std::move(data), {},
@@ -530,9 +545,9 @@ bool CryptoObjectDispatch<I>::write_same(
       });
 
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
-  auto req = io::ObjectDispatchSpec::create_write(
+  auto req = io::ObjectDispatchSpec::create_write( // This call creates a new write request and this request is started at the layer following the second argument of the call
           m_image_ctx,
-          io::util::get_previous_layer(io::OBJECT_DISPATCH_LAYER_CRYPTO),
+          io::util::get_previous_layer(io::OBJECT_DISPATCH_LAYER_CRYPTO), // In my case I'll give the crypto layer and it'll call the next layer
           object_no, object_off, std::move(ws_data), io_context, op_flags, 0,
           std::nullopt, 0, parent_trace, ctx);
   req->send();

@@ -98,7 +98,6 @@ public:
   void send(DispatchSpec* dispatch_spec) {
     auto cct = m_image_ctx->cct;
     ldout(cct, 20) << "dispatch_spec=" << dispatch_spec << dendl;
-
     auto dispatch_layer = dispatch_spec->dispatch_layer;
 
     // apply the IO request to all layers -- this method will be re-invoked

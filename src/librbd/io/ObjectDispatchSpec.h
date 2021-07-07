@@ -90,6 +90,22 @@ public:
     }
   };
 
+
+  struct WriteExtentsRequest : public WriteRequestBase {
+    // WriteExtents extents;
+    ceph::bufferlist data;
+    int write_flags;
+    std::optional<uint64_t> assert_version;
+
+    WriteExtentsRequest(uint64_t object_no, uint64_t object_off,
+                 ceph::bufferlist&& data, int write_flags,
+                 std::optional<uint64_t> assert_version, uint64_t journal_tid)
+      : WriteRequestBase(object_no, object_off, journal_tid),
+        data(std::move(data)), write_flags(write_flags),
+        assert_version(assert_version) {
+    }
+  };
+
   struct WriteSameRequest : public WriteRequestBase {
     uint64_t object_len;
     LightweightBufferExtents buffer_extents;
@@ -147,6 +163,7 @@ public:
   typedef boost::variant<ReadRequest,
                          DiscardRequest,
                          WriteRequest,
+                         WriteExtentsRequest,
                          WriteSameRequest,
                          CompareAndWriteRequest,
                          FlushRequest,
@@ -170,6 +187,7 @@ public:
       uint64_t object_no, ReadExtents* extents, IOContext io_context,
       int op_flags, int read_flags, const ZTracer::Trace &parent_trace,
       uint64_t* version, Context* on_finish) {
+    
     return new ObjectDispatchSpec(image_ctx->io_object_dispatcher,
                                   object_dispatch_layer,
                                   ReadRequest{object_no, extents,
@@ -201,7 +219,23 @@ public:
       const ZTracer::Trace &parent_trace, Context *on_finish) {
     return new ObjectDispatchSpec(image_ctx->io_object_dispatcher,
                                   object_dispatch_layer,
-                                  WriteRequest{object_no, object_off,
+                                  WriteRequest{object_no, object_off, //create new class MultipleWriteRequest with the multiple writes
+                                               std::move(data), write_flags,
+                                               assert_version, journal_tid},
+                                  io_context, op_flags, parent_trace,
+                                  on_finish);
+  }
+
+  template <typename ImageCtxT>
+  static ObjectDispatchSpec* create_write_extents(
+      ImageCtxT* image_ctx, ObjectDispatchLayer object_dispatch_layer,
+      uint64_t object_no, uint64_t object_off, ceph::bufferlist&& data,
+      IOContext io_context, int op_flags, int write_flags,
+      std::optional<uint64_t> assert_version, uint64_t journal_tid,
+      const ZTracer::Trace &parent_trace, Context *on_finish) {
+    return new ObjectDispatchSpec(image_ctx->io_object_dispatcher,
+                                  object_dispatch_layer,
+                                  WriteExtentsRequest{object_no, object_off, //create new class MultipleWriteRequest with the multiple writes
                                                std::move(data), write_flags,
                                                assert_version, journal_tid},
                                   io_context, op_flags, parent_trace,

@@ -65,13 +65,27 @@ struct ObjectDispatcher<I>::SendVisitor : public boost::static_visitor<bool> {
       &object_dispatch_spec->dispatcher_ctx);
   }
 
-  bool operator()(ObjectDispatchSpec::WriteRequest& write) const {
-    return object_dispatch->write(
+  bool operator()(ObjectDispatchSpec::WriteRequest& write) const { // copy this function with the new multiple writes
+      cout << "got here regular write" << std::endl;
+      return object_dispatch->write(
       write.object_no, write.object_off, std::move(write.data),
       object_dispatch_spec->io_context, object_dispatch_spec->op_flags,
       write.write_flags, write.assert_version,
       object_dispatch_spec->parent_trace,
       &object_dispatch_spec->object_dispatch_flags, &write.journal_tid,
+      &object_dispatch_spec->dispatch_result,
+      &object_dispatch_spec->dispatcher_ctx.on_finish,
+      &object_dispatch_spec->dispatcher_ctx);
+  }
+
+  bool operator()(ObjectDispatchSpec::WriteExtentsRequest& write_extents) const { 
+      cout << "got here write_extents" << std::endl;
+      return object_dispatch->write_extents(
+      write_extents.object_no, write_extents.object_off, std::move(write_extents.data),
+      object_dispatch_spec->io_context, object_dispatch_spec->op_flags,
+      write_extents.write_flags, write_extents.assert_version,
+      object_dispatch_spec->parent_trace,
+      &object_dispatch_spec->object_dispatch_flags, &write_extents.journal_tid,
       &object_dispatch_spec->dispatch_result,
       &object_dispatch_spec->dispatcher_ctx.on_finish,
       &object_dispatch_spec->dispatcher_ctx);
