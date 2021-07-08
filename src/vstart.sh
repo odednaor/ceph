@@ -639,7 +639,7 @@ prepare_conf() {
         filestore fd cache size = 32
         run dir = $CEPH_OUT_DIR
         crash dir = $CEPH_OUT_DIR
-        enable experimental unrecoverable data corrupting features = *
+        ; enable experimental unrecoverable data corrupting features = *
         osd_crush_chooseleaf_type = 0
         debug asok assert abort = true
         $(format_conf "${msgr_conf}")
@@ -1248,7 +1248,7 @@ EOF
 
 if [ "$debug" -eq 0 ]; then
     CMONDEBUG='
-        debug mon = 10
+        debug mon = 1
         debug ms = 1'
 else
     debug echo "** going verbose **"
