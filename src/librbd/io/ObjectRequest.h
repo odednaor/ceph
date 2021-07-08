@@ -270,16 +270,13 @@ public:
       m_write_flags(write_flags), m_assert_version(assert_version){ 
         WriteExtent extent{object_off, m_write_data};
         // WriteExtents extents{extent};
-        // cout<< "data: " << extent <<std::endl;
         m_extents.push_back(extent);
-        // cout<< "data: " << extent <<std::endl;
-        // cout << "extents: " << m_extents << std::endl;
       }
 
   ObjectWriteRequest(
       ImageCtxT *ictx, uint64_t object_no, WriteExtents extents, IOContext io_context, int op_flags,
       int write_flags, std::optional<uint64_t> assert_version,
-      const ZTracer::Trace &parent_trace, Context *completion, int num)
+      const ZTracer::Trace &parent_trace, Context *completion)
       : AbstractObjectWriteRequest<ImageCtxT>(ictx, object_no, extents.front().first,
                                             extents.front().second.length(), io_context, "write",
                                             parent_trace, completion), m_extents(extents),

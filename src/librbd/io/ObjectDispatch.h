@@ -55,12 +55,11 @@ public:
       Context** on_finish, Context* on_dispatched) override;
 
   bool write_extents(
-    uint64_t object_no, uint64_t object_off, ceph::bufferlist&& data,
-    IOContext io_context, int op_flags, int write_flags,
-    std::optional<uint64_t> assert_version,
-    const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
-    uint64_t* journal_tid, DispatchResult* dispatch_result,
-    Context** on_finish, Context* on_dispatched) override;
+      uint64_t object_no, WriteExtents extents, IOContext io_context, int op_flags, int write_flags,
+      std::optional<uint64_t> assert_version,
+      const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
+      uint64_t* journal_tid, DispatchResult* dispatch_result, 
+      Context**on_finish, Context* on_dispatched) override;
 
   bool write_same(
       uint64_t object_no, uint64_t object_off, uint64_t object_len,

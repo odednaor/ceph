@@ -66,7 +66,6 @@ struct ObjectDispatcher<I>::SendVisitor : public boost::static_visitor<bool> {
   }
 
   bool operator()(ObjectDispatchSpec::WriteRequest& write) const { // copy this function with the new multiple writes
-      cout << "got here regular write" << std::endl;
       return object_dispatch->write(
       write.object_no, write.object_off, std::move(write.data),
       object_dispatch_spec->io_context, object_dispatch_spec->op_flags,
@@ -79,9 +78,8 @@ struct ObjectDispatcher<I>::SendVisitor : public boost::static_visitor<bool> {
   }
 
   bool operator()(ObjectDispatchSpec::WriteExtentsRequest& write_extents) const { 
-      cout << "got here write_extents" << std::endl;
       return object_dispatch->write_extents(
-      write_extents.object_no, write_extents.object_off, std::move(write_extents.data),
+      write_extents.object_no, write_extents.extents,
       object_dispatch_spec->io_context, object_dispatch_spec->op_flags,
       write_extents.write_flags, write_extents.assert_version,
       object_dispatch_spec->parent_trace,

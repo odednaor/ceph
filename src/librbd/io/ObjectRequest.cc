@@ -662,18 +662,12 @@ void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   // elem.first = (uint64_t)15;
   // m_extents.push_back(elem);
   for(auto& extent: m_extents) {
-      // cout << "inside for loop: " << extent << std::endl;    
     if (this->m_full_object) {
-      // cout<<"first branch" <<std::endl;
       // wr->write_full(bufferlist{m_write_data});
       wr->write_full(bufferlist{extent.second});
     } else {
-      // cout<<"second branch" <<std::endl;
       // wr->write(this->m_object_off, bufferlist{m_write_data});
-      // cout << "data: " << m_write_data << std::endl;
-      // cout << "extents: " << m_extents << std::endl;
       wr->write(extent.first, bufferlist{extent.second});
-      // cout<<"after call" <<std::endl;
     }
     util::apply_op_flags(m_op_flags, 0U, wr);
   }

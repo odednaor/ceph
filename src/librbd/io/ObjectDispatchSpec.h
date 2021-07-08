@@ -92,16 +92,16 @@ public:
 
 
   struct WriteExtentsRequest : public WriteRequestBase {
-    // WriteExtents extents;
+    WriteExtents extents;
     ceph::bufferlist data;
     int write_flags;
     std::optional<uint64_t> assert_version;
 
-    WriteExtentsRequest(uint64_t object_no, uint64_t object_off,
-                 ceph::bufferlist&& data, int write_flags,
-                 std::optional<uint64_t> assert_version, uint64_t journal_tid)
-      : WriteRequestBase(object_no, object_off, journal_tid),
-        data(std::move(data)), write_flags(write_flags),
+    WriteExtentsRequest(uint64_t object_no, WriteExtents extents,
+                int write_flags,
+                std::optional<uint64_t> assert_version, uint64_t journal_tid)
+      : WriteRequestBase(object_no, extents.front().first, journal_tid),
+        extents(extents), write_flags(write_flags),
         assert_version(assert_version) {
     }
   };
@@ -229,14 +229,13 @@ public:
   template <typename ImageCtxT>
   static ObjectDispatchSpec* create_write_extents(
       ImageCtxT* image_ctx, ObjectDispatchLayer object_dispatch_layer,
-      uint64_t object_no, uint64_t object_off, ceph::bufferlist&& data,
+      uint64_t object_no, WriteExtents extents,
       IOContext io_context, int op_flags, int write_flags,
       std::optional<uint64_t> assert_version, uint64_t journal_tid,
       const ZTracer::Trace &parent_trace, Context *on_finish) {
     return new ObjectDispatchSpec(image_ctx->io_object_dispatcher,
                                   object_dispatch_layer,
-                                  WriteExtentsRequest{object_no, object_off, //create new class MultipleWriteRequest with the multiple writes
-                                               std::move(data), write_flags,
+                                  WriteExtentsRequest{object_no, extents, write_flags,
                                                assert_version, journal_tid},
                                   io_context, op_flags, parent_trace,
                                   on_finish);
