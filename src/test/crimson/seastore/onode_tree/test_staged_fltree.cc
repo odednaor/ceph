@@ -1103,9 +1103,11 @@ class DummyChildPool {
     ).safe_then([this](auto initial_child) {
       // split
       splitable_nodes.insert(initial_child);
-      return crimson::do_until([this] () -> eagain_future<bool> {
+      return crimson::repeat([this] ()
+        -> eagain_future<seastar::stop_iteration> {
         if (splitable_nodes.empty()) {
-          return seastar::make_ready_future<bool>(true);
+          return seastar::make_ready_future<seastar::stop_iteration>(
+            seastar::stop_iteration::yes);
         }
         auto index = rd() % splitable_nodes.size();
         auto iter = splitable_nodes.begin();
@@ -1113,7 +1115,7 @@ class DummyChildPool {
         Ref<DummyChild> child = *iter;
         return child->populate_split(get_context(), splitable_nodes
         ).safe_then([] {
-          return seastar::make_ready_future<bool>(false);
+          return seastar::stop_iteration::no;
         });
       });
     }).safe_then([this] {
@@ -1526,7 +1528,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
         {8, 11,  64, 256, 301, 320},
         {8, 16, 128, 512, 576, 640},
         {0, 16}, {0, 10}, {0, 4});
-    auto moved_nm = (TEST_SEASTORE ? NodeExtentManager::create_seastore(*tm)
+    auto moved_nm = (TEST_SEASTORE ? NodeExtentManager::create_seastore(itm)
                                    : NodeExtentManager::create_dummy(IS_DUMMY_SYNC));
     auto p_nm = moved_nm.get();
     auto tree = std::make_unique<TreeBuilder<TRACK_CURSORS, BoundedValue>>(
@@ -1534,7 +1536,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     {
       auto t = tm->create_transaction();
       tree->bootstrap(*t).unsafe_get();
-      tm->submit_transaction(std::move(t)).unsafe_get();
+      submit_transaction(std::move(t));
       segment_cleaner->run_until_halt().get0();
     }
 
@@ -1542,7 +1544,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     {
       auto t = tm->create_transaction();
       tree->insert(*t).unsafe_get();
-      tm->submit_transaction(std::move(t)).unsafe_get();
+      submit_transaction(std::move(t));
       segment_cleaner->run_until_halt().get0();
     }
     {
@@ -1552,7 +1554,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     if constexpr (TEST_SEASTORE) {
       logger().info("seastore replay insert begin");
       restart();
-      tree->reload(NodeExtentManager::create_seastore(*tm));
+      tree->reload(NodeExtentManager::create_seastore(itm));
       logger().info("seastore replay insert end");
     }
     {
@@ -1565,7 +1567,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     {
       auto t = tm->create_transaction();
       tree->erase(*t, kvs.size() / 4 * 3).unsafe_get();
-      tm->submit_transaction(std::move(t)).unsafe_get();
+      submit_transaction(std::move(t));
       segment_cleaner->run_until_halt().get0();
     }
     {
@@ -1575,7 +1577,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     if constexpr (TEST_SEASTORE) {
       logger().info("seastore replay erase-1 begin");
       restart();
-      tree->reload(NodeExtentManager::create_seastore(*tm));
+      tree->reload(NodeExtentManager::create_seastore(itm));
       logger().info("seastore replay erase-1 end");
     }
     {
@@ -1587,7 +1589,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     {
       auto t = tm->create_transaction();
       tree->erase(*t, kvs.size()).unsafe_get();
-      tm->submit_transaction(std::move(t)).unsafe_get();
+      submit_transaction(std::move(t));
       segment_cleaner->run_until_halt().get0();
     }
     {
@@ -1597,7 +1599,7 @@ TEST_F(d_seastore_tm_test_t, 6_random_tree_insert_erase)
     if constexpr (TEST_SEASTORE) {
       logger().info("seastore replay erase-2 begin");
       restart();
-      tree->reload(NodeExtentManager::create_seastore(*tm));
+      tree->reload(NodeExtentManager::create_seastore(itm));
       logger().info("seastore replay erase-2 end");
     }
     {
@@ -1625,7 +1627,7 @@ TEST_F(d_seastore_tm_test_t, 7_tree_insert_erase_eagain)
         {8, 16, 128, 576,  992, 1200},
         {0, 8}, {0, 10}, {0, 4});
     auto moved_nm = NodeExtentManager::create_seastore(
-        *tm, L_ADDR_MIN, EAGAIN_PROBABILITY);
+        itm, L_ADDR_MIN, EAGAIN_PROBABILITY);
     auto p_nm = static_cast<SeastoreNodeExtentManager<true>*>(moved_nm.get());
     auto tree = std::make_unique<TreeBuilder<TRACK_CURSORS, ExtendedValue>>(
         kvs, std::move(moved_nm));
@@ -1636,11 +1638,14 @@ TEST_F(d_seastore_tm_test_t, 7_tree_insert_erase_eagain)
     ++num_ops;
     repeat_eagain([this, &tree, &num_ops_eagain] {
       ++num_ops_eagain;
-      auto t = tm->create_transaction();
-      return tree->bootstrap(*t
-      ).safe_then([this, t = std::move(t)] () mutable {
-        return tm->submit_transaction(std::move(t));
-      });
+      return seastar::do_with(
+	tm->create_transaction(),
+	[this, &tree](auto &t) {
+	  return tree->bootstrap(*t
+	  ).safe_then([this, &t] {
+	    return submit_transaction_fut(*t);
+	  });
+	});
     }).unsafe_get0();
     segment_cleaner->run_until_halt().get0();
 
@@ -1652,12 +1657,15 @@ TEST_F(d_seastore_tm_test_t, 7_tree_insert_erase_eagain)
         ++num_ops;
         repeat_eagain([this, &tree, &num_ops_eagain, &iter] {
           ++num_ops_eagain;
-          auto t = tm->create_transaction();
-          return tree->insert_one(*t, iter
-          ).safe_then([this, t = std::move(t)] (auto cursor) mutable {
-            cursor.invalidate();
-            return tm->submit_transaction(std::move(t));
-          });
+	  return seastar::do_with(
+	    tm->create_transaction(),
+	    [this, &tree, &iter](auto &t) {
+	      return tree->insert_one(*t, iter
+	      ).safe_then([this, &t](auto cursor) {
+		cursor.invalidate();
+		return submit_transaction_fut(*t);
+	      });
+	    });
         }).unsafe_get0();
         segment_cleaner->run_until_halt().get0();
         ++iter;
@@ -1696,11 +1704,14 @@ TEST_F(d_seastore_tm_test_t, 7_tree_insert_erase_eagain)
         ++num_ops;
         repeat_eagain([this, &tree, &num_ops_eagain, &iter] {
           ++num_ops_eagain;
-          auto t = tm->create_transaction();
-          return tree->erase_one(*t, iter
-          ).safe_then([this, t = std::move(t)] () mutable {
-            return tm->submit_transaction(std::move(t));
-          });
+	  return seastar::do_with(
+	    tm->create_transaction(),
+	    [this, &tree, &iter](auto &t) {
+	      return tree->erase_one(*t, iter
+	      ).safe_then([this, &t] () mutable {
+		return submit_transaction_fut(*t);
+	      });
+	    });
         }).unsafe_get0();
         segment_cleaner->run_until_halt().get0();
         ++iter;

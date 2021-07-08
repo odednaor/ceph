@@ -26,10 +26,11 @@
 #include "crimson/os/futurized_store.h"
 
 namespace {
-  seastar::logger& logger()
-  {
-    return crimson::get_logger(ceph_subsys_bluestore);
-  }
+
+seastar::logger& logger()
+{
+  return crimson::get_logger(ceph_subsys_bluestore);
+}
 
 class OnCommit final: public Context
 {
@@ -338,8 +339,8 @@ AlienStore::get_attrs(CollectionRef ch,
   return seastar::do_with(attrs_t{}, [=] (auto &aset) {
     return tp->submit(ch->get_cid().hash_to_shard(tp->size()), [=, &aset] {
       auto c = static_cast<AlienCollection*>(ch.get());
-      return store->getattrs(c->collection, oid,
-		             reinterpret_cast<map<string,bufferptr>&>(aset));
+      const auto r = store->getattrs(c->collection, oid, aset);
+      return r;
     }).then([&aset] (int r) -> get_attrs_ertr::future<attrs_t> {
       if (r == -ENOENT) {
         return crimson::ct_error::enoent::make();

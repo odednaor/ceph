@@ -459,21 +459,18 @@ seastar::future<> OSD::start_asok_admin()
   auto asok_path = local_conf().get_val<std::string>("admin_socket");
   using namespace crimson::admin;
   return asok->start(asok_path).then([this] {
-    return seastar::when_all_succeed(
-      asok->register_admin_commands(),
-      asok->register_command(make_asok_hook<OsdStatusHook>(std::as_const(*this))),
-      asok->register_command(make_asok_hook<SendBeaconHook>(*this)),
-      asok->register_command(make_asok_hook<FlushPgStatsHook>(*this)),
-      asok->register_command(make_asok_hook<DumpPGStateHistory>(std::as_const(*this))),
-      asok->register_command(make_asok_hook<DumpMetricsHook>()),
-      asok->register_command(make_asok_hook<DumpPerfCountersHook>()),
-      asok->register_command(make_asok_hook<InjectDataErrorHook>(get_shard_services())),
-      asok->register_command(make_asok_hook<InjectMDataErrorHook>(get_shard_services())),
-      // PG commands
-      asok->register_command(make_asok_hook<pg::QueryCommand>(*this)),
-      asok->register_command(make_asok_hook<pg::MarkUnfoundLostCommand>(*this)));
-  }).then_unpack([] {
-    return seastar::now();
+    asok->register_admin_commands();
+    asok->register_command(make_asok_hook<OsdStatusHook>(std::as_const(*this)));
+    asok->register_command(make_asok_hook<SendBeaconHook>(*this));
+    asok->register_command(make_asok_hook<FlushPgStatsHook>(*this));
+    asok->register_command(make_asok_hook<DumpPGStateHistory>(std::as_const(*this)));
+    asok->register_command(make_asok_hook<DumpMetricsHook>());
+    asok->register_command(make_asok_hook<DumpPerfCountersHook>());
+    asok->register_command(make_asok_hook<InjectDataErrorHook>(get_shard_services()));
+    asok->register_command(make_asok_hook<InjectMDataErrorHook>(get_shard_services()));
+    // PG commands
+    asok->register_command(make_asok_hook<pg::QueryCommand>(*this));
+    asok->register_command(make_asok_hook<pg::MarkUnfoundLostCommand>(*this));
   });
 }
 
@@ -507,9 +504,7 @@ seastar::future<> OSD::stop()
     }).then([this] {
       return when_all_succeed(
 	  public_msgr->shutdown(),
-	  cluster_msgr->shutdown());
-    }).then_unpack([] {
-      return seastar::now();
+	  cluster_msgr->shutdown()).discard_result();
     }).handle_exception([](auto ep) {
       logger().error("error while stopping osd: {}", ep);
     });
@@ -1089,7 +1084,8 @@ seastar::future<> OSD::committed_osd_maps(version_t first,
   }).then([m, this] {
     if (state.is_active()) {
       logger().info("osd.{}: now active", whoami);
-      if (!osdmap->exists(whoami)) {
+      if (!osdmap->exists(whoami) ||
+	  osdmap->is_stop(whoami)) {
         return shutdown();
       }
       if (should_restart()) {

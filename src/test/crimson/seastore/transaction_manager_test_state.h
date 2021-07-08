@@ -100,7 +100,8 @@ auto get_seastore(SegmentManagerRef sm) {
 
 class TMTestState : public EphemeralTestState {
 protected:
-  std::unique_ptr<TransactionManager> tm;
+  TransactionManagerRef tm;
+  InterruptedTransactionManager itm;
   LBAManager *lba_manager;
   SegmentCleaner *segment_cleaner;
 
@@ -108,6 +109,7 @@ protected:
 
   virtual void _init() {
     tm = get_transaction_manager(*segment_manager);
+    itm = InterruptedTransactionManager(*tm);
     segment_cleaner = tm->get_segment_cleaner();
     lba_manager = tm->get_lba_manager();
   }
@@ -115,6 +117,7 @@ protected:
   virtual void _destroy() {
     segment_cleaner = nullptr;
     lba_manager = nullptr;
+    itm.reset();
     tm.reset();
   }
 
@@ -143,6 +146,19 @@ protected:
     ).handle_error(
       crimson::ct_error::assert_all{"Error in teardown"}
     );
+  }
+
+  auto submit_transaction_fut(Transaction &t) {
+    return with_trans_intr(
+      t,
+      [this](auto &t) {
+	return tm->submit_transaction(t);
+      });
+  }
+
+  void submit_transaction(TransactionRef t) {
+    submit_transaction_fut(*t).unsafe_get0();
+    segment_cleaner->run_until_halt().get0();
   }
 };
 

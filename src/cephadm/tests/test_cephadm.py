@@ -535,6 +535,12 @@ docker.io/ceph/daemon-base:octopus
         ctx.container_engine = mock_docker()
         assert not cd.should_log_to_journald(ctx)
 
+    def test_normalize_image_digest(self):
+        s = 'myhostname:5000/ceph/ceph@sha256:753886ad9049004395ae990fbb9b096923b5a518b819283141ee8716ddf55ad1'
+        assert cd.normalize_image_digest(s) == s
+
+        s = 'ceph/ceph:latest'
+        assert cd.normalize_image_digest(s) == f'{cd.DEFAULT_REGISTRY}/{s}'
 
 class TestCustomContainer(unittest.TestCase):
     cc: cd.CustomContainer
@@ -1135,6 +1141,57 @@ class TestBootstrap(object):
             with with_cephadm_ctx(cmd, list_networks=list_networks) as ctx:
                 msg = r'--skip-mon-network'
                 with pytest.raises(cd.Error, match=msg):
+                    cd.command_bootstrap(ctx)
+        else:
+            with with_cephadm_ctx(cmd, list_networks=list_networks) as ctx:
+                retval = cd.command_bootstrap(ctx)
+                assert retval == 0
+
+    @pytest.mark.parametrize('mon_addrv, list_networks, err',
+        [
+            # IPv4
+            (
+                '192.168.1.1',
+                {'192.168.1.0/24': {'eth0': ['192.168.1.1']}},
+                r'must use square backets',
+            ),
+            (
+                '[192.168.1.1]',
+                {'192.168.1.0/24': {'eth0': ['192.168.1.1']}},
+                r'must include port number',
+            ),
+            (
+                '[192.168.1.1:1234]',
+                {'192.168.1.0/24': {'eth0': ['192.168.1.1']}},
+                None,
+            ),
+            (
+                '[v2:192.168.1.1:3300,v1:192.168.1.1:6789]',
+                {'192.168.1.0/24': {'eth0': ['192.168.1.1']}},
+                None,
+            ),
+            # IPv6
+            (
+                '[::ffff:192.168.1.1:1234]',
+                {'ffff::/64': {'eth0': ['::ffff:c0a8:101']}},
+                None,
+            ),
+            (
+                '[0000:0000:0000:0000:0000:FFFF:C0A8:0101:1234]',
+                {'ffff::/64': {'eth0': ['::ffff:c0a8:101']}},
+                None,
+            ),
+            (
+                '[v2:0000:0000:0000:0000:0000:FFFF:C0A8:0101:3300,v1:0000:0000:0000:0000:0000:FFFF:C0A8:0101:6789]',
+                {'ffff::/64': {'eth0': ['::ffff:c0a8:101']}},
+                None,
+            ),
+        ])
+    def test_mon_addrv(self, mon_addrv, list_networks, err, cephadm_fs):
+        cmd = self._get_cmd('--mon-addrv', mon_addrv)
+        if err:
+            with with_cephadm_ctx(cmd, list_networks=list_networks) as ctx:
+                with pytest.raises(cd.Error, match=err):
                     cd.command_bootstrap(ctx)
         else:
             with with_cephadm_ctx(cmd, list_networks=list_networks) as ctx:

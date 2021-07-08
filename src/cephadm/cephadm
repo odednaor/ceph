@@ -2387,6 +2387,7 @@ def get_container_mounts(ctx, fsid, daemon_type, daemon_id,
             ceph_folder = pathify(ctx.shared_ceph_folder)
             if os.path.exists(ceph_folder):
                 mounts[ceph_folder + '/src/ceph-volume/ceph_volume'] = '/usr/lib/python3.6/site-packages/ceph_volume'
+                mounts[ceph_folder + '/src/cephadm/cephadm'] = '/usr/sbin/cephadm'
                 mounts[ceph_folder + '/src/pybind/mgr'] = '/usr/share/ceph/mgr'
                 mounts[ceph_folder + '/src/python-common/ceph'] = '/usr/lib/python3.6/site-packages/ceph'
                 mounts[ceph_folder + '/monitoring/grafana/dashboards'] = '/etc/grafana/dashboards/ceph-dashboard'
@@ -2708,6 +2709,35 @@ def _write_container_cmd_to_bash(ctx, file_obj, container, comment=None, backgro
         + (' &' if background else '') + '\n')
 
 
+def clean_cgroup(ctx: CephadmContext, unit_name: str):
+    # systemd may fail to cleanup cgroups from previous stopped unit, which will cause next "systemctl start" to fail.
+    # see https://tracker.ceph.com/issues/50998
+
+    # In bootstrap we set the context fsid at the end.
+    if not ctx.fsid:
+        return
+
+    CGROUPV2_PATH = Path('/sys/fs/cgroup')
+    if not (CGROUPV2_PATH / 'system.slice').exists():
+        # Only unified cgroup is affected, skip if not the case
+        return
+
+    slice_name = 'system-ceph\\x2d{}.slice'.format(ctx.fsid.replace('-', '\\x2d'))
+    cg_path = CGROUPV2_PATH / 'system.slice' / slice_name / f'{unit_name}.service'
+    if not cg_path.exists():
+        return
+
+    def cg_trim(path: Path):
+        for p in path.iterdir():
+            if p.is_dir():
+                cg_trim(p)
+        path.rmdir()
+    try:
+        cg_trim(cg_path)
+    except OSError:
+        logger.warning(f'Failed to trim old cgroups {cg_path}')
+
+
 def deploy_daemon_units(
     ctx: CephadmContext,
     fsid: str,
@@ -2844,6 +2874,7 @@ def deploy_daemon_units(
     if enable:
         call_throws(ctx, ['systemctl', 'enable', unit_name])
     if start:
+        clean_cgroup(ctx, unit_name)
         call_throws(ctx, ['systemctl', 'start', unit_name])
 
 
@@ -3371,7 +3402,7 @@ def normalize_image_digest(digest):
     #   quay.ceph.io/ceph/ceph -> ceph
     #   docker.io/ubuntu -> no change
     bits = digest.split('/')
-    if '.' not in bits[0] or len(bits) < 3:
+    if '.' not in bits[0] and len(bits) < 3:
         digest = DEFAULT_REGISTRY + '/' + digest
     return digest
 
@@ -3492,7 +3523,7 @@ def prepare_mon_addresses(
                             addr_arg)
             port = int(hasport[0])
             # strip off v1: or v2: prefix
-            addr = re.sub(r'^\w+:', '', addr)
+            addr = re.sub(r'^v\d+:', '', addr)
             base_ip = addr[0:-(len(str(port))) - 1]
             check_ip_port(ctx, base_ip, port)
     else:
@@ -5547,7 +5578,7 @@ def command_rm_cluster(ctx):
         call(ctx, ['systemctl', 'disable', unit_name],
              verbosity=CallVerbosity.DEBUG)
 
-    slice_name = 'system-%s.slice' % (('ceph-%s' % ctx.fsid).replace('-', '\\x2d'))
+    slice_name = 'system-ceph\\x2d{}.slice'.format(ctx.fsid.replace('-', '\\x2d'))
     call(ctx, ['systemctl', 'stop', slice_name],
          verbosity=CallVerbosity.DEBUG)
 
