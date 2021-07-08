@@ -495,13 +495,14 @@ bool CryptoObjectDispatch<I>::write(
     }
     else {
       *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
-      ldout(cct, 20) << "aligned crypto dispatch" << dendl;
+      librbd::io::WriteExtent extent{object_off, data};
+      librbd::io::WriteExtents extents;
+      extents.push_back(extent);
       auto req = io::ObjectDispatchSpec::create_write_extents( // This call creates a new write request and this request is started at the layer following the second argument of the call
             m_image_ctx,
             librbd::io::OBJECT_DISPATCH_LAYER_SCHEDULER, // One layer after crypto, need to change methods
-            object_no, object_off, std::move(data), io_context, op_flags, write_flags,
+            object_no, extents, io_context, op_flags, write_flags,
             assert_version, 0, parent_trace, on_dispatched);
-      // ldout(cct, 20) << "sending request" << dendl;
       req->send();
     }
     // on_dispatched->complete(r);
