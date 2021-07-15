@@ -233,9 +233,10 @@ void ObjectReadRequest<I>::read_object() {
   image_locker.unlock();
 
   ldout(image_ctx->cct, 20) << "snap_id=" << read_snap_id << dendl;
-
+  
   neorados::ReadOp read_op;
   for (auto& extent: *this->m_extents) {
+    cout << "read extent: " << extent << std::endl; 
     if (extent.length >= image_ctx->sparse_read_threshold_bytes) {
       read_op.sparse_read(extent.offset, extent.length, &extent.bl,
                           &extent.extent_map);
@@ -258,6 +259,8 @@ template <typename I>
 void ObjectReadRequest<I>::handle_read_object(int r) {
   I *image_ctx = this->m_ictx;
   ldout(image_ctx->cct, 20) << "r=" << r << dendl;
+  ldout(image_ctx->cct, 20) << "got here handle_read_object" << r << dendl;
+  // cout << "handle_read_object: " << m_extents->front().bl << std::endl;
   if (m_version != nullptr) {
     ldout(image_ctx->cct, 20) << "version=" << *m_version << dendl;
   }
@@ -662,6 +665,7 @@ void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   // elem.first = (uint64_t)15;
   // m_extents.push_back(elem);
   for(auto& extent: m_extents) {
+    cout << "write extent: " << extent << std::endl;
     if (this->m_full_object) {
       // wr->write_full(bufferlist{m_write_data});
       wr->write_full(bufferlist{extent.second});

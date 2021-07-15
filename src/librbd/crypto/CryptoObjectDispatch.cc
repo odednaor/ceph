@@ -55,7 +55,11 @@ struct C_AlignedObjectReadRequest : public Context {
       auto ctx = create_context_callback<
               C_AlignedObjectReadRequest<I>,
               &C_AlignedObjectReadRequest<I>::handle_read>(this);
-
+      
+      
+      librbd::io::ReadExtent iv_read(4*1024*1024, 5);
+      extents->push_back(iv_read);
+      
       req = io::ObjectDispatchSpec::create_read(
               image_ctx, io::OBJECT_DISPATCH_LAYER_CRYPTO, object_no,
               extents, io_context, op_flags, read_flags, parent_trace,
@@ -76,10 +80,12 @@ struct C_AlignedObjectReadRequest : public Context {
       ldout(cct, 20) << "aligned read r=" << r << dendl;
       if (r == 0) {
         for (auto& extent: *extents) {
+          cout << "crypto layer read extent: " << extent.bl.c_str() << std::endl;
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
                   io::util::get_file_offset(
                           image_ctx, object_no, extent.offset));
+          cout << "decrypted extent: " << extent.bl.length() << std::endl;
           if (crypto_ret != 0) {
             ceph_assert(crypto_ret < 0);
             r = crypto_ret;
@@ -451,7 +457,6 @@ bool CryptoObjectDispatch<I>::read(
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << *extents << dendl;
-  ldout(cct, 20) << "got here crypto read" << dendl;
   ceph_assert(m_crypto != nullptr);
 
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
@@ -481,6 +486,9 @@ bool CryptoObjectDispatch<I>::write(
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
     Context** on_finish, Context* on_dispatched) {
   auto cct = m_image_ctx->cct;
+
+
+
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
@@ -496,18 +504,30 @@ bool CryptoObjectDispatch<I>::write(
     else {
       *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
       librbd::io::WriteExtent extent{object_off, data};
+      // ceph::bufferlist iv_data;
+      // iv_data.push_back("abc")  //16 bytes, propo
+      // Calculate the new WriteExtent at the end of the object
       librbd::io::WriteExtents extents;
       extents.push_back(extent);
-      auto req = io::ObjectDispatchSpec::create_write_extents( // This call creates a new write request and this request is started at the layer following the second argument of the call
+
+      string str2("test");
+      char* char_arr2 = &str2[0];
+      bufferptr p2(char_arr2, 5);
+      ceph::bufferlist buffer_test;
+      buffer_test.push_back(p2);
+      librbd::io::WriteExtent extent2{object_off+4096*1024, buffer_test}; //need to write to the end of the object (default size=4MB)
+      extents.push_back(extent2);
+
+      auto req = io::ObjectDispatchSpec::create_write_extents( 
             m_image_ctx,
-            librbd::io::OBJECT_DISPATCH_LAYER_SCHEDULER, // One layer after crypto, need to change methods
+            librbd::io::OBJECT_DISPATCH_LAYER_SCHEDULER, 
             object_no, extents, io_context, op_flags, write_flags,
             assert_version, 0, parent_trace, on_dispatched);
       req->send();
     }
     // on_dispatched->complete(r);
-  } else {
-    ldout(cct, 20) << "unaligned crypto dispatch" << dendl;
+  } else { 
+    cout << "object offset: " << object_off << std::endl;
     *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
     auto req = new C_UnalignedObjectWriteRequest<I>(
             m_image_ctx, m_crypto, object_no, object_off, std::move(data), {},
