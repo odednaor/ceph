@@ -52,14 +52,36 @@ struct C_AlignedObjectReadRequest : public Context {
               ((read_flags & io::READ_FLAG_DISABLE_READ_FROM_PARENT) != 0);
       read_flags |= io::READ_FLAG_DISABLE_READ_FROM_PARENT;
 
+      ldout(image_ctx->cct, 20) << "C_AlignedObjectReadRequest" << dendl;
+
+
+      auto block_size = crypto->get_block_size();
+      auto object_size = image_ctx->get_object_size();
+      uint64_t IV_length = 16;
+      io::ReadExtents IV_vec;
+      int extents_size = extents->size();
+      for(int i = 0; i < extents_size; i++) {
+        auto& extent = extents->at(i);
+        cout << "extent data: " << extent << std::endl;
+        uint64_t crypto_unit_offset = extent.offset / block_size;
+        uint64_t IV_read_location = object_size + crypto_unit_offset*IV_length;
+        uint64_t IV_size = IV_length * extent.length / block_size;
+        librbd::io::ReadExtent iv_read(IV_read_location, IV_size);
+        cout << "IV_read_location: " << IV_read_location << std::endl;
+        cout << "IV_length: " << IV_length << std::endl;
+        cout << "IV_size: " << IV_size << std::endl;
+        cout << "read extent number: " << i << std::endl;
+
+        extents->push_back(iv_read);
+      }
+
+      for(auto& extent: *extents) {
+        cout << "extent: " << extent << std::endl;
+      }
+
       auto ctx = create_context_callback<
               C_AlignedObjectReadRequest<I>,
               &C_AlignedObjectReadRequest<I>::handle_read>(this);
-      
-      
-      librbd::io::ReadExtent iv_read(4*1024*1024, 5);
-      extents->push_back(iv_read);
-      
       req = io::ObjectDispatchSpec::create_read(
               image_ctx, io::OBJECT_DISPATCH_LAYER_CRYPTO, object_no,
               extents, io_context, op_flags, read_flags, parent_trace,
@@ -79,21 +101,32 @@ struct C_AlignedObjectReadRequest : public Context {
       auto cct = image_ctx->cct;
       ldout(cct, 20) << "aligned read r=" << r << dendl;
       if (r == 0) {
-        for (auto& extent: *extents) {
-          cout << "crypto layer read extent: " << extent.bl.c_str() << std::endl;
+        int aligned_extents_size = extents->size()/2;
+        for(int i = 0; i < aligned_extents_size; i++) {
+        // for (auto& extent: *extents) {
+          auto& extent = extents->at(i);
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
                   io::util::get_file_offset(
                           image_ctx, object_no, extent.offset));
-          cout << "decrypted extent: " << extent.bl.length() << std::endl;
           if (crypto_ret != 0) {
             ceph_assert(crypto_ret < 0);
             r = crypto_ret;
             break;
           }
           r += extent.length;
+
+          int IV_index = aligned_extents_size+i;
+          auto& IV_extent = extents->at(IV_index);
+          cout << " IV value: " << IV_extent.bl.c_str() << std::endl;
+          // extents->erase(extents->begin());
+        }
+        //TODO: erase inside the previous for loop
+        for(int i = 0; i < aligned_extents_size; i++) {
+          extents->pop_back();
         }
       }
+      
 
       if (r == -ENOENT && !disable_read_from_parent) {
         io::util::read_parent<I>(
@@ -458,15 +491,19 @@ bool CryptoObjectDispatch<I>::read(
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << *extents << dendl;
   ceph_assert(m_crypto != nullptr);
-
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
+
+
+
   if (m_crypto->is_aligned(*extents)) {
+    cout <<"aligned read request" << std::endl;
     auto req = new C_AlignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
             on_dispatched);
     req->send();
   } else {
+    cout <<"unaligned read request" << std::endl;
     auto req = new C_UnalignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
@@ -488,7 +525,6 @@ bool CryptoObjectDispatch<I>::write(
   auto cct = m_image_ctx->cct;
 
 
-
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
@@ -504,18 +540,39 @@ bool CryptoObjectDispatch<I>::write(
     else {
       *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
       librbd::io::WriteExtent extent{object_off, data};
-      // ceph::bufferlist iv_data;
-      // iv_data.push_back("abc")  //16 bytes, propo
-      // Calculate the new WriteExtent at the end of the object
       librbd::io::WriteExtents extents;
       extents.push_back(extent);
 
-      string str2("test");
-      char* char_arr2 = &str2[0];
-      bufferptr p2(char_arr2, 5);
+      auto block_size = m_crypto->get_block_size();
+      auto object_size = m_image_ctx->get_object_size();
+      uint64_t IV_length = 16;
+      uint64_t crypto_unit_offset = object_off / block_size;
+      uint64_t IV_write_location = object_size + crypto_unit_offset*IV_length;
+      uint64_t IV_size = IV_length * data.length() / block_size;
+
+      // cout << "crypto objects num: " << crypto_unit_no << std::endl;
+      cout << "object_no: " << object_no << std::endl; 
+      cout << "object_off: " << object_off << std::endl;
+      cout << "object aligned length: " << data.length() << std::endl;
+      cout << "block size: " << m_crypto->get_block_size() << std::endl;
+      cout << "IV write location: " << IV_write_location << std::endl;
+      cout << "IV size: " << IV_size << std::endl;
+      
+      string str("");
+      char char_to_write = 'a';
+      for(uint64_t i = 0 ; i < IV_size/IV_length; i++) {
+        cout << "char_to_write: " << char_to_write << std::endl;
+        for(int j = 0; j < (int)IV_length; j++) {
+          str.push_back(char_to_write);
+        }
+        char_to_write++;
+      }
+
+      cout << "str length: " << str.length() << std::endl;
+      bufferptr p(&str[0], str.length());
       ceph::bufferlist buffer_test;
-      buffer_test.push_back(p2);
-      librbd::io::WriteExtent extent2{object_off+4096*1024, buffer_test}; //need to write to the end of the object (default size=4MB)
+      buffer_test.push_back(p);
+      librbd::io::WriteExtent extent2{IV_write_location, buffer_test}; //need to write to the end of the object (default size=4MB)
       extents.push_back(extent2);
 
       auto req = io::ObjectDispatchSpec::create_write_extents( 
