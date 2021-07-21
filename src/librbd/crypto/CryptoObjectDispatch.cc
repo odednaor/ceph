@@ -59,25 +59,25 @@ struct C_AlignedObjectReadRequest : public Context {
       auto object_size = image_ctx->get_object_size();
       uint64_t IV_length = 16;
       io::ReadExtents IV_vec;
-      int extents_size = extents->size();
-      for(int i = 0; i < extents_size; i++) {
-        auto& extent = extents->at(i);
-        cout << "extent data: " << extent << std::endl;
+      uint64_t extents_size = extents->size();
+      for(uint64_t i = 0; i < extents_size; i++) {
+        auto& extent = (*extents)[i];
+        // cout << "extent data: " << extent << std::endl;
         uint64_t crypto_unit_offset = extent.offset / block_size;
         uint64_t IV_read_location = object_size + crypto_unit_offset*IV_length;
         uint64_t IV_size = IV_length * extent.length / block_size;
         librbd::io::ReadExtent iv_read(IV_read_location, IV_size);
-        cout << "IV_read_location: " << IV_read_location << std::endl;
-        cout << "IV_length: " << IV_length << std::endl;
-        cout << "IV_size: " << IV_size << std::endl;
-        cout << "read extent number: " << i << std::endl;
+        // cout << "IV_read_location: " << IV_read_location << std::endl;
+        // cout << "IV_length: " << IV_length << std::endl;
+        // cout << "IV_size: " << IV_size << std::endl;
+        // cout << "read extent number: " << i << std::endl;
 
         extents->push_back(iv_read);
       }
 
-      for(auto& extent: *extents) {
-        cout << "extent: " << extent << std::endl;
-      }
+      // for(auto& extent: *extents) {
+      //   cout << "extent: " << extent << std::endl;
+      // }
 
       auto ctx = create_context_callback<
               C_AlignedObjectReadRequest<I>,
@@ -101,14 +101,19 @@ struct C_AlignedObjectReadRequest : public Context {
       auto cct = image_ctx->cct;
       ldout(cct, 20) << "aligned read r=" << r << dendl;
       if (r == 0) {
-        int aligned_extents_size = extents->size()/2;
-        for(int i = 0; i < aligned_extents_size; i++) {
+        uint64_t aligned_extents_size = extents->size()/2;
+        for(uint64_t i = 0; i < aligned_extents_size; i++) {
         // for (auto& extent: *extents) {
-          auto& extent = extents->at(i);
+
+          auto iv_size = crypto->get_iv_size();
+          unsigned char* iv1 = (unsigned char*)alloca(iv_size);
+          memset(iv1, 'a', iv_size);
+
+          auto& extent = (*extents)[i];
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
                   io::util::get_file_offset(
-                          image_ctx, object_no, extent.offset));
+                          image_ctx, object_no, extent.offset), iv1);
           if (crypto_ret != 0) {
             ceph_assert(crypto_ret < 0);
             r = crypto_ret;
@@ -117,12 +122,13 @@ struct C_AlignedObjectReadRequest : public Context {
           r += extent.length;
 
           int IV_index = aligned_extents_size+i;
-          auto& IV_extent = extents->at(IV_index);
+          auto& IV_extent = (*extents)[IV_index];
           cout << " IV value: " << IV_extent.bl.c_str() << std::endl;
-          // extents->erase(extents->begin());
+          // auto iterator = extents->begin();
+          // extents->erase(iterator);
         }
-        //TODO: erase inside the previous for loop
-        for(int i = 0; i < aligned_extents_size; i++) {
+        // TODO: erase inside the previous for loop
+        for(uint64_t i = 0; i < aligned_extents_size; i++) {
           extents->pop_back();
         }
       }
@@ -493,17 +499,15 @@ bool CryptoObjectDispatch<I>::read(
   ceph_assert(m_crypto != nullptr);
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
 
-
-
   if (m_crypto->is_aligned(*extents)) {
-    cout <<"aligned read request" << std::endl;
+    // cout <<"aligned read request" << std::endl;
     auto req = new C_AlignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
             on_dispatched);
     req->send();
   } else {
-    cout <<"unaligned read request" << std::endl;
+    // cout <<"unaligned read request" << std::endl;
     auto req = new C_UnalignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
@@ -529,9 +533,17 @@ bool CryptoObjectDispatch<I>::write(
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
   if (m_crypto->is_aligned(object_off, data.length())) {
-    auto r = m_crypto->encrypt(
+    
+    // string iv_str = "test";
+    // char* iv = &iv_str[0];
+    
+    auto iv_size = m_crypto->get_iv_size();
+    unsigned char* iv1 = (unsigned char*)alloca(iv_size);
+    memset(iv1, 'a', iv_size);
+
+    auto r = m_crypto->rand_iv_encrypt(
             &data,
-            io::util::get_file_offset(m_image_ctx, object_no, object_off));
+            io::util::get_file_offset(m_image_ctx, object_no, object_off), iv1);
     // *dispatch_result = r == 0 ? io::DISPATCH_RESULT_CONTINUE
     //                           : io::DISPATCH_RESULT_COMPLETE;
     if(r != 0) {
@@ -551,24 +563,24 @@ bool CryptoObjectDispatch<I>::write(
       uint64_t IV_size = IV_length * data.length() / block_size;
 
       // cout << "crypto objects num: " << crypto_unit_no << std::endl;
-      cout << "object_no: " << object_no << std::endl; 
-      cout << "object_off: " << object_off << std::endl;
-      cout << "object aligned length: " << data.length() << std::endl;
-      cout << "block size: " << m_crypto->get_block_size() << std::endl;
-      cout << "IV write location: " << IV_write_location << std::endl;
-      cout << "IV size: " << IV_size << std::endl;
+      // cout << "object_no: " << object_no << std::endl; 
+      // cout << "object_off: " << object_off << std::endl;
+      // cout << "object aligned length: " << data.length() << std::endl;
+      // cout << "block size: " << m_crypto->get_block_size() << std::endl;
+      // cout << "IV write location: " << IV_write_location << std::endl;
+      // cout << "IV size: " << IV_size << std::endl;
       
       string str("");
       char char_to_write = 'a';
       for(uint64_t i = 0 ; i < IV_size/IV_length; i++) {
-        cout << "char_to_write: " << char_to_write << std::endl;
+        // cout << "char_to_write: " << char_to_write << std::endl;
         for(int j = 0; j < (int)IV_length; j++) {
           str.push_back(char_to_write);
         }
         char_to_write++;
       }
 
-      cout << "str length: " << str.length() << std::endl;
+      // cout << "str length: " << str.length() << std::endl;
       bufferptr p(&str[0], str.length());
       ceph::bufferlist buffer_test;
       buffer_test.push_back(p);
@@ -584,7 +596,7 @@ bool CryptoObjectDispatch<I>::write(
     }
     // on_dispatched->complete(r);
   } else { 
-    cout << "object offset: " << object_off << std::endl;
+    // cout << "object offset: " << object_off << std::endl;
     *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
     auto req = new C_UnalignedObjectWriteRequest<I>(
             m_image_ctx, m_crypto, object_no, object_off, std::move(data), {},
@@ -726,6 +738,7 @@ int CryptoObjectDispatch<I>::prepare_copyup(
         aligned_bl.substr_of(current_bl, aligned_off + position, image_length);
         aligned_bl.rebuild(); // to deep copy aligned_bl from current_bl
         position += image_length;
+
 
         auto r = m_crypto->encrypt(&aligned_bl, image_offset);
         if (r != 0) {

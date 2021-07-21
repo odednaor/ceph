@@ -17,10 +17,22 @@ class CryptoInterface : public RefCountedObject {
 public:
   virtual int encrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
   virtual int decrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
+
+  virtual int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) {
+    return 0;
+  }
+  virtual int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) {
+    return 0;
+  }
+
   virtual uint64_t get_block_size() const = 0;
   virtual uint64_t get_data_offset() const = 0;
   virtual const unsigned char* get_key() const = 0;
   virtual int get_key_length() const = 0;
+
+  virtual int get_iv_size() const {
+    return 16;
+  }
 
   inline std::pair<uint64_t, uint64_t> get_pre_and_post_align(
           uint64_t off, uint64_t len) {
@@ -61,7 +73,7 @@ public:
   }
 
   inline int decrypt_aligned_extent(io::ReadExtent& extent,
-                                    uint64_t image_offset) {
+                                    uint64_t image_offset, unsigned char* iv) {
     if (extent.length == 0 || extent.bl.length() == 0) {
       return 0;
     }
@@ -88,9 +100,9 @@ public:
         curr_block_bl.append_zero(curr_block_end_offset - curr_offset);
         auto curr_block_length = curr_block_bl.length();
         if (curr_block_length > 0) {
-          auto r = decrypt(
+          auto r = rand_iv_decrypt(
                   &curr_block_bl,
-                  image_offset + curr_block_start_offset - extent.offset);
+                  image_offset + curr_block_start_offset - extent.offset, iv);
           if (r != 0) {
             return r;
           }

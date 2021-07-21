@@ -25,6 +25,9 @@ public:
 
     int encrypt(ceph::bufferlist* data, uint64_t image_offset) override;
     int decrypt(ceph::bufferlist* data, uint64_t image_offset) override;
+    
+    int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) override;
+    int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) override;
 
     uint64_t get_block_size() const override {
       return m_block_size;
@@ -42,6 +45,10 @@ public:
       return m_data_cryptor->get_key_length();
     }
 
+    int get_iv_size() const override{
+      return m_iv_size;
+    }
+
 private:
     CephContext* m_cct;
     DataCryptor<T>* m_data_cryptor;
@@ -50,6 +57,9 @@ private:
     uint32_t m_iv_size;
 
     int crypt(ceph::bufferlist* data, uint64_t image_offset, CipherMode mode);
+
+    int rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
+                           CipherMode mode, unsigned char* iv);
 };
 
 } // namespace crypto
