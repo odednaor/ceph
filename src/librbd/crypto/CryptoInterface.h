@@ -18,10 +18,10 @@ public:
   virtual int encrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
   virtual int decrypt(ceph::bufferlist* data, uint64_t image_offset) = 0;
 
-  virtual int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) {
+  virtual int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) {
     return 0;
   }
-  virtual int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) {
+  virtual int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) {
     return 0;
   }
 
@@ -30,7 +30,7 @@ public:
   virtual const unsigned char* get_key() const = 0;
   virtual int get_key_length() const = 0;
 
-  virtual int get_iv_size() const {
+  virtual int get_single_iv_size() const {
     return 16;
   }
 
@@ -73,7 +73,7 @@ public:
   }
 
   inline int decrypt_aligned_extent(io::ReadExtent& extent,
-                                    uint64_t image_offset, unsigned char* iv) {
+                                    uint64_t image_offset, unsigned char* iv, uint64_t iv_size) {
     if (extent.length == 0 || extent.bl.length() == 0) {
       return 0;
     }
@@ -102,7 +102,7 @@ public:
         if (curr_block_length > 0) {
           auto r = rand_iv_decrypt(
                   &curr_block_bl,
-                  image_offset + curr_block_start_offset - extent.offset, iv);
+                  image_offset + curr_block_start_offset - extent.offset, iv, iv_size);
           if (r != 0) {
             return r;
           }

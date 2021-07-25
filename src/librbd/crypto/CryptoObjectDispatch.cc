@@ -13,6 +13,7 @@
 #include "librbd/io/ObjectDispatchSpec.h"
 #include "librbd/io/ReadResult.h"
 #include "librbd/io/Utils.h"
+#include <openssl/rand.h>
 
 #define dout_subsys ceph_subsys_rbd
 #undef dout_prefix
@@ -57,27 +58,18 @@ struct C_AlignedObjectReadRequest : public Context {
 
       auto block_size = crypto->get_block_size();
       auto object_size = image_ctx->get_object_size();
-      uint64_t IV_length = 16;
+      uint64_t single_iv_size = crypto->get_single_iv_size(); 
       io::ReadExtents IV_vec;
       uint64_t extents_size = extents->size();
       for(uint64_t i = 0; i < extents_size; i++) {
         auto& extent = (*extents)[i];
-        // cout << "extent data: " << extent << std::endl;
         uint64_t crypto_unit_offset = extent.offset / block_size;
-        uint64_t IV_read_location = object_size + crypto_unit_offset*IV_length;
-        uint64_t IV_size = IV_length * extent.length / block_size;
-        librbd::io::ReadExtent iv_read(IV_read_location, IV_size);
-        // cout << "IV_read_location: " << IV_read_location << std::endl;
-        // cout << "IV_length: " << IV_length << std::endl;
-        // cout << "IV_size: " << IV_size << std::endl;
-        // cout << "read extent number: " << i << std::endl;
-
+        uint64_t iv_read_location = object_size + crypto_unit_offset*single_iv_size;
+        uint64_t iv_size = single_iv_size * extent.length / block_size;
+        librbd::io::ReadExtent iv_read(iv_read_location, iv_size);
+        // cout << "C_AlignedObjectReadRequest iv_size: " << iv_size << std::endl;
         extents->push_back(iv_read);
       }
-
-      // for(auto& extent: *extents) {
-      //   cout << "extent: " << extent << std::endl;
-      // }
 
       auto ctx = create_context_callback<
               C_AlignedObjectReadRequest<I>,
@@ -105,27 +97,37 @@ struct C_AlignedObjectReadRequest : public Context {
         for(uint64_t i = 0; i < aligned_extents_size; i++) {
         // for (auto& extent: *extents) {
 
-          auto iv_size = crypto->get_iv_size();
-          unsigned char* iv1 = (unsigned char*)alloca(iv_size);
-          memset(iv1, 'a', iv_size);
-
+          int iv_index = aligned_extents_size+i;
+          auto& iv_extent = (*extents)[iv_index];
+          unsigned char* iv = (unsigned char*) iv_extent.bl.c_str();
+          
           auto& extent = (*extents)[i];
+
+          auto block_size = crypto->get_block_size();
+          auto single_iv_size = crypto->get_single_iv_size();
+          uint64_t iv_size = single_iv_size * extent.length / block_size;
+          
+          cout << "extent.length: " << extent.length << std::endl;
+          cout <<"block_size: " << block_size << std::endl;
+          cout << "single_iv_size: " << single_iv_size << std::endl;
+          cout << "iv_size in handle_read: " << iv_size << std::endl;
+
+          // cout << "iv as hex in handle_read: ";
+          //   for(int i = 0; i < iv_size; i++) {
+          //     cout << std::hex << (int)iv[i];
+          //   }
+          // cout << std::endl;
+
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
                   io::util::get_file_offset(
-                          image_ctx, object_no, extent.offset), iv1);
+                          image_ctx, object_no, extent.offset), iv, iv_size);
           if (crypto_ret != 0) {
             ceph_assert(crypto_ret < 0);
             r = crypto_ret;
             break;
           }
           r += extent.length;
-
-          int IV_index = aligned_extents_size+i;
-          auto& IV_extent = (*extents)[IV_index];
-          cout << " IV value: " << IV_extent.bl.c_str() << std::endl;
-          // auto iterator = extents->begin();
-          // extents->erase(iterator);
         }
         // TODO: erase inside the previous for loop
         for(uint64_t i = 0; i < aligned_extents_size; i++) {
@@ -529,23 +531,51 @@ bool CryptoObjectDispatch<I>::write(
   auto cct = m_image_ctx->cct;
 
 
+
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
   if (m_crypto->is_aligned(object_off, data.length())) {
     
-    // string iv_str = "test";
-    // char* iv = &iv_str[0];
+    auto block_size = m_crypto->get_block_size();
+    auto single_iv_size = m_crypto->get_single_iv_size();
+    auto object_size = m_image_ctx->get_object_size();
     
-    auto iv_size = m_crypto->get_iv_size();
-    unsigned char* iv1 = (unsigned char*)alloca(iv_size);
-    memset(iv1, 'a', iv_size);
+    uint64_t block_num = data.length() / block_size;
+    uint64_t iv_size = single_iv_size * block_num;
+    uint64_t crypto_unit_offset = object_off / block_size; //offset from end of the object
+    uint64_t iv_write_offset = object_size + crypto_unit_offset*single_iv_size;
+    
+    unsigned char* iv = (unsigned char*)alloca(iv_size);
+    memset(iv, '0', iv_size);
+    
+    for(uint64_t i = 0; i < block_num; i++) {
+      unsigned char* key = (unsigned char*)alloca(iv_size);
+      if (RAND_bytes((unsigned char *)key, single_iv_size) != 1) {
+        lderr(m_image_ctx->cct) << "cannot generate random bytes" << dendl;
+      }
+      uint64_t key_offset = i * single_iv_size;
+      memcpy(iv+key_offset, key, single_iv_size);
+    }
+  
+    // cout << "iv as hex in write: ";
+    // for(int i = 0; i < iv_size; i++) {
+    //   cout << std::hex << (int)iv[i];
+    // }
+    // cout << std::endl;
 
     auto r = m_crypto->rand_iv_encrypt(
             &data,
-            io::util::get_file_offset(m_image_ctx, object_no, object_off), iv1);
+            io::util::get_file_offset(m_image_ctx, object_no, object_off), iv, iv_size);
+
+    // auto r = m_crypto->encrypt(
+    //         &data,
+    //         io::util::get_file_offset(m_image_ctx, object_no, object_off));
+
+
     // *dispatch_result = r == 0 ? io::DISPATCH_RESULT_CONTINUE
     //                           : io::DISPATCH_RESULT_COMPLETE;
+
     if(r != 0) {
       on_dispatched->complete(r);
     }
@@ -555,37 +585,22 @@ bool CryptoObjectDispatch<I>::write(
       librbd::io::WriteExtents extents;
       extents.push_back(extent);
 
-      auto block_size = m_crypto->get_block_size();
-      auto object_size = m_image_ctx->get_object_size();
-      uint64_t IV_length = 16;
-      uint64_t crypto_unit_offset = object_off / block_size;
-      uint64_t IV_write_location = object_size + crypto_unit_offset*IV_length;
-      uint64_t IV_size = IV_length * data.length() / block_size;
+      // uint64_t IV_length = m_crypto->get_single_iv_size();
+      // uint64_t IV_size = IV_length * data.length() / block_size;
+      // string str("");
+      // char char_to_write = 'a';
+      // for(uint64_t i = 0 ; i < IV_size/IV_length; i++) {
+      //   for(int j = 0; j < (int)IV_length; j++) {
+      //     str.push_back(char_to_write);
+      //   }
+      //   char_to_write++;
+      // }
 
-      // cout << "crypto objects num: " << crypto_unit_no << std::endl;
-      // cout << "object_no: " << object_no << std::endl; 
-      // cout << "object_off: " << object_off << std::endl;
-      // cout << "object aligned length: " << data.length() << std::endl;
-      // cout << "block size: " << m_crypto->get_block_size() << std::endl;
-      // cout << "IV write location: " << IV_write_location << std::endl;
-      // cout << "IV size: " << IV_size << std::endl;
-      
-      string str("");
-      char char_to_write = 'a';
-      for(uint64_t i = 0 ; i < IV_size/IV_length; i++) {
-        // cout << "char_to_write: " << char_to_write << std::endl;
-        for(int j = 0; j < (int)IV_length; j++) {
-          str.push_back(char_to_write);
-        }
-        char_to_write++;
-      }
-
-      // cout << "str length: " << str.length() << std::endl;
-      bufferptr p(&str[0], str.length());
+      bufferptr p((char*) iv, iv_size);
       ceph::bufferlist buffer_test;
       buffer_test.push_back(p);
-      librbd::io::WriteExtent extent2{IV_write_location, buffer_test}; //need to write to the end of the object (default size=4MB)
-      extents.push_back(extent2);
+      librbd::io::WriteExtent iv_extent{iv_write_offset, buffer_test}; //need to write to the end of the object (default size=4MB)
+      extents.push_back(iv_extent);
 
       auto req = io::ObjectDispatchSpec::create_write_extents( 
             m_image_ctx,
@@ -596,7 +611,6 @@ bool CryptoObjectDispatch<I>::write(
     }
     // on_dispatched->complete(r);
   } else { 
-    // cout << "object offset: " << object_off << std::endl;
     *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
     auto req = new C_UnalignedObjectWriteRequest<I>(
             m_image_ctx, m_crypto, object_no, object_off, std::move(data), {},

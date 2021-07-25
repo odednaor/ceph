@@ -26,8 +26,8 @@ public:
     int encrypt(ceph::bufferlist* data, uint64_t image_offset) override;
     int decrypt(ceph::bufferlist* data, uint64_t image_offset) override;
     
-    int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) override;
-    int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv) override;
+    int rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) override;
+    int rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) override;
 
     uint64_t get_block_size() const override {
       return m_block_size;
@@ -45,7 +45,7 @@ public:
       return m_data_cryptor->get_key_length();
     }
 
-    int get_iv_size() const override{
+    int get_single_iv_size() const override{
       return m_iv_size;
     }
 
