@@ -59,7 +59,7 @@ private:
     int crypt(ceph::bufferlist* data, uint64_t image_offset, CipherMode mode);
 
     int rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
-                           CipherMode mode, unsigned char* iv);
+                           CipherMode mode, unsigned char* iv, uint64_t iv_size);
 };
 
 } // namespace crypto

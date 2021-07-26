@@ -31,7 +31,7 @@ BlockCrypto<T>::~BlockCrypto() {
 template <typename T>
 int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
                            CipherMode mode) {
-  cout << "image offset: " << image_offset << std::endl;
+  // cout << "image offset: " << image_offset << std::endl;
   if (image_offset % m_block_size != 0) {
     lderr(m_cct) << "image offset: " << image_offset
                  << " not aligned to block size: " << m_block_size << dendl;
@@ -60,14 +60,14 @@ int BlockCrypto<T>::crypt(ceph::bufferlist* data, uint64_t image_offset,
   unsigned char* leftover_block = (unsigned char*)alloca(m_block_size);
   uint32_t leftover_size = 0;
   for (auto buf = src.buffers().begin(); buf != src.buffers().end(); ++buf) {
-    cout << "sector number: " << sector_number << std::endl;
+    // cout << "sector number: " << sector_number << std::endl;
     auto in_buf_ptr = reinterpret_cast<const unsigned char*>(buf->c_str());
     auto remaining_buf_bytes = buf->length();
     while (remaining_buf_bytes > 0) {
       if (leftover_size == 0) {
         auto block_offset_le = ceph_le64(sector_number);
         memcpy(iv, &block_offset_le, sizeof(block_offset_le));
-        cout << "IV in crypt function: " << iv << std::endl;
+        // cout << "IV in crypt function: " << iv << std::endl;
         auto r = m_data_cryptor->init_context(ctx, iv, m_iv_size);
         if (r != 0) {
           lderr(m_cct) << "unable to init cipher's IV" << dendl;
@@ -130,7 +130,7 @@ int BlockCrypto<T>::decrypt(ceph::bufferlist* data, uint64_t image_offset) {
 //New crypt functions with random iv passed as a parameter
 template <typename T>
 int BlockCrypto<T>::rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
-                           CipherMode mode, unsigned char* iv) {
+                           CipherMode mode, unsigned char* iv, uint64_t iv_size) {
   if (image_offset % m_block_size != 0) {
     lderr(m_cct) << "image offset: " << image_offset
                  << " not aligned to block size: " << m_block_size << dendl;
@@ -142,7 +142,7 @@ int BlockCrypto<T>::rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
     return -EINVAL;
   }
 
-  // unsigned char* iv = (unsigned char*)alloca(m_iv_size);
+  unsigned char* block_iv = (unsigned char*)alloca(m_iv_size);
   // memset(iv, 0, m_iv_size);
 
   // cout << "iv size in blockcrypto.cc:" << iv_size << std::endl;
@@ -160,15 +160,24 @@ int BlockCrypto<T>::rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
   unsigned char* out_buf_ptr = nullptr;
   unsigned char* leftover_block = (unsigned char*)alloca(m_block_size);
   uint32_t leftover_size = 0;
+  uint64_t block_number = 0;
   for (auto buf = src.buffers().begin(); buf != src.buffers().end(); ++buf) {
     auto in_buf_ptr = reinterpret_cast<const unsigned char*>(buf->c_str());
     auto remaining_buf_bytes = buf->length();
     while (remaining_buf_bytes > 0) {
       if (leftover_size == 0) {
         // auto block_offset_le = ceph_le64(sector_number);
-        // memcpy(iv, &block_offset_le, sizeof(block_offset_le));
+        memcpy(block_iv, iv + block_number*m_iv_size, m_iv_size);
+        block_number++;
+        
+        cout << "iv in crypt function: 0x";
+          for(int i = 0; i < m_iv_size; i++) {
+            cout << std::hex << (int)block_iv[i];
+          }
+        cout << std::endl;
         // cout << "iv used: " << iv << std::endl;
-        auto r = m_data_cryptor->init_context(ctx, iv, m_iv_size);
+
+        auto r = m_data_cryptor->init_context(ctx, block_iv, m_iv_size);
         if (r != 0) {
           lderr(m_cct) << "unable to init cipher's IV" << dendl;
           return r;
@@ -218,12 +227,12 @@ int BlockCrypto<T>::rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
 
 template <typename T>
 int BlockCrypto<T>::rand_iv_encrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) {
-  return rand_iv_crypt(data, image_offset, CipherMode::CIPHER_MODE_ENC, iv);
+  return rand_iv_crypt(data, image_offset, CipherMode::CIPHER_MODE_ENC, iv, iv_size);
 }
 
 template <typename T>
 int BlockCrypto<T>::rand_iv_decrypt(ceph::bufferlist* data, uint64_t image_offset, unsigned char* iv, uint64_t iv_size) {
-  return rand_iv_crypt(data, image_offset, CipherMode::CIPHER_MODE_DEC, iv);
+  return rand_iv_crypt(data, image_offset, CipherMode::CIPHER_MODE_DEC, iv, iv_size);
 }
 
 

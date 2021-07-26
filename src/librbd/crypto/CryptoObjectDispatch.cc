@@ -95,8 +95,6 @@ struct C_AlignedObjectReadRequest : public Context {
       if (r == 0) {
         uint64_t aligned_extents_size = extents->size()/2;
         for(uint64_t i = 0; i < aligned_extents_size; i++) {
-        // for (auto& extent: *extents) {
-
           int iv_index = aligned_extents_size+i;
           auto& iv_extent = (*extents)[iv_index];
           unsigned char* iv = (unsigned char*) iv_extent.bl.c_str();
@@ -106,17 +104,12 @@ struct C_AlignedObjectReadRequest : public Context {
           auto block_size = crypto->get_block_size();
           auto single_iv_size = crypto->get_single_iv_size();
           uint64_t iv_size = single_iv_size * extent.length / block_size;
-          
-          cout << "extent.length: " << extent.length << std::endl;
-          cout <<"block_size: " << block_size << std::endl;
-          cout << "single_iv_size: " << single_iv_size << std::endl;
-          cout << "iv_size in handle_read: " << iv_size << std::endl;
 
-          // cout << "iv as hex in handle_read: ";
-          //   for(int i = 0; i < iv_size; i++) {
-          //     cout << std::hex << (int)iv[i];
-          //   }
-          // cout << std::endl;
+          cout << "iv in handle_read: 0x";
+            for(int i = 0; i < iv_size; i++) {
+              cout << std::hex << (int)iv[i];
+            }
+          cout << std::endl;
 
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
@@ -558,11 +551,11 @@ bool CryptoObjectDispatch<I>::write(
       memcpy(iv+key_offset, key, single_iv_size);
     }
   
-    // cout << "iv as hex in write: ";
-    // for(int i = 0; i < iv_size; i++) {
-    //   cout << std::hex << (int)iv[i];
-    // }
-    // cout << std::endl;
+    cout << "iv in write: 0x";
+    for(int i = 0; i < iv_size; i++) {
+      cout << std::hex << (int)iv[i];
+    }
+    cout << std::endl;
 
     auto r = m_crypto->rand_iv_encrypt(
             &data,
@@ -584,17 +577,6 @@ bool CryptoObjectDispatch<I>::write(
       librbd::io::WriteExtent extent{object_off, data};
       librbd::io::WriteExtents extents;
       extents.push_back(extent);
-
-      // uint64_t IV_length = m_crypto->get_single_iv_size();
-      // uint64_t IV_size = IV_length * data.length() / block_size;
-      // string str("");
-      // char char_to_write = 'a';
-      // for(uint64_t i = 0 ; i < IV_size/IV_length; i++) {
-      //   for(int j = 0; j < (int)IV_length; j++) {
-      //     str.push_back(char_to_write);
-      //   }
-      //   char_to_write++;
-      // }
 
       bufferptr p((char*) iv, iv_size);
       ceph::bufferlist buffer_test;
