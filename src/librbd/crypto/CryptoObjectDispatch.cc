@@ -105,11 +105,11 @@ struct C_AlignedObjectReadRequest : public Context {
           auto single_iv_size = crypto->get_single_iv_size();
           uint64_t iv_size = single_iv_size * extent.length / block_size;
 
-          cout << "iv in handle_read: 0x";
-            for(int i = 0; i < iv_size; i++) {
-              cout << std::hex << (int)iv[i];
-            }
-          cout << std::endl;
+          // cout << "iv in handle_read: 0x";
+          //   for(int i = 0; i < iv_size; i++) {
+          //     cout << std::hex << (int)iv[i];
+          //   }
+          // cout << std::endl;
 
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
@@ -522,9 +522,6 @@ bool CryptoObjectDispatch<I>::write(
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
     Context** on_finish, Context* on_dispatched) {
   auto cct = m_image_ctx->cct;
-
-
-
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
   ceph_assert(m_crypto != nullptr);
@@ -539,6 +536,8 @@ bool CryptoObjectDispatch<I>::write(
     uint64_t crypto_unit_offset = object_off / block_size; //offset from end of the object
     uint64_t iv_write_offset = object_size + crypto_unit_offset*single_iv_size;
     
+    // cout << "crypto dispatch write" << std::endl;
+
     unsigned char* iv = (unsigned char*)alloca(iv_size);
     memset(iv, '0', iv_size);
     
@@ -550,12 +549,18 @@ bool CryptoObjectDispatch<I>::write(
       uint64_t key_offset = i * single_iv_size;
       memcpy(iv+key_offset, key, single_iv_size);
     }
-  
-    cout << "iv in write: 0x";
-    for(int i = 0; i < iv_size; i++) {
-      cout << std::hex << (int)iv[i];
-    }
-    cout << std::endl;
+
+    // cout << "iv: ";
+    // for(int i = 0; i < iv_size; i++) {
+    //   cout << (int)iv[i];
+    // }
+    // cout << std::endl;
+
+    // cout << "iv in write: 0x";
+    // for(int i = 0; i < iv_size; i++) {
+    //   cout << std::hex << (int)iv[i];
+    // }
+    // cout << std::endl;
 
     auto r = m_crypto->rand_iv_encrypt(
             &data,

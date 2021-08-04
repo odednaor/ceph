@@ -170,11 +170,11 @@ int BlockCrypto<T>::rand_iv_crypt(ceph::bufferlist* data, uint64_t image_offset,
         memcpy(block_iv, iv + block_number*m_iv_size, m_iv_size);
         block_number++;
         
-        cout << "iv in crypt function: 0x";
-          for(int i = 0; i < m_iv_size; i++) {
-            cout << std::hex << (int)block_iv[i];
-          }
-        cout << std::endl;
+        // cout << "iv in crypt function: z;
+        //   for(int i = 0; i < m_iv_size; i++) {
+        //     cout << std::hex << (int)block_iv[i];
+        //   }
+        // cout << std::endl;
         // cout << "iv used: " << iv << std::endl;
 
         auto r = m_data_cryptor->init_context(ctx, block_iv, m_iv_size);

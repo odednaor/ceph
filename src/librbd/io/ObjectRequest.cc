@@ -661,6 +661,7 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
+  cout << "Modified ceph write request" << std::endl;
   for(auto& extent: m_extents) {
     if (this->m_full_object) {
       wr->write_full(bufferlist{extent.second});
