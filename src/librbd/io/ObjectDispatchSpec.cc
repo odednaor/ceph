@@ -14,7 +14,6 @@ void ObjectDispatchSpec::C_Dispatcher::complete(int r) {
     finish(r);
     return;
   }
-
   switch (object_dispatch_spec->dispatch_result) {
   case DISPATCH_RESULT_CONTINUE:
     object_dispatch_spec->send();

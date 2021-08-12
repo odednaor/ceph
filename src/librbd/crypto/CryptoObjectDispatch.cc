@@ -67,7 +67,6 @@ struct C_AlignedObjectReadRequest : public Context {
         uint64_t iv_read_location = object_size + crypto_unit_offset*single_iv_size;
         uint64_t iv_size = single_iv_size * extent.length / block_size;
         librbd::io::ReadExtent iv_read(iv_read_location, iv_size);
-        // cout << "C_AlignedObjectReadRequest iv_size: " << iv_size << std::endl;
         extents->push_back(iv_read);
       }
 
@@ -97,19 +96,13 @@ struct C_AlignedObjectReadRequest : public Context {
         for(uint64_t i = 0; i < aligned_extents_size; i++) {
           int iv_index = aligned_extents_size+i;
           auto& iv_extent = (*extents)[iv_index];
-          unsigned char* iv = (unsigned char*) iv_extent.bl.c_str();
-          
+          uint64_t iv_extent_length = iv_extent.length;
+          unsigned char* iv = (unsigned char*)alloca(iv_extent_length);
+          memcpy(iv, iv_extent.bl.c_str(), iv_extent_length);
           auto& extent = (*extents)[i];
-
           auto block_size = crypto->get_block_size();
           auto single_iv_size = crypto->get_single_iv_size();
           uint64_t iv_size = single_iv_size * extent.length / block_size;
-
-          // cout << "iv in handle_read: 0x";
-          //   for(int i = 0; i < iv_size; i++) {
-          //     cout << std::hex << (int)iv[i];
-          //   }
-          // cout << std::endl;
 
           auto crypto_ret = crypto->decrypt_aligned_extent(
                   extent,
@@ -127,8 +120,6 @@ struct C_AlignedObjectReadRequest : public Context {
           extents->pop_back();
         }
       }
-      
-
       if (r == -ENOENT && !disable_read_from_parent) {
         io::util::read_parent<I>(
                 image_ctx, object_no, extents,
@@ -495,14 +486,12 @@ bool CryptoObjectDispatch<I>::read(
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
 
   if (m_crypto->is_aligned(*extents)) {
-    // cout <<"aligned read request" << std::endl;
     auto req = new C_AlignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
             on_dispatched);
     req->send();
   } else {
-    // cout <<"unaligned read request" << std::endl;
     auto req = new C_UnalignedObjectReadRequest<I>(
             m_image_ctx, m_crypto, object_no, extents, io_context,
             op_flags, read_flags, parent_trace, version, object_dispatch_flags,
@@ -521,6 +510,7 @@ bool CryptoObjectDispatch<I>::write(
     const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
     Context** on_finish, Context* on_dispatched) {
+ 
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
@@ -535,44 +525,20 @@ bool CryptoObjectDispatch<I>::write(
     uint64_t iv_size = single_iv_size * block_num;
     uint64_t crypto_unit_offset = object_off / block_size; //offset from end of the object
     uint64_t iv_write_offset = object_size + crypto_unit_offset*single_iv_size;
-    
-    // cout << "crypto dispatch write" << std::endl;
-
     unsigned char* iv = (unsigned char*)alloca(iv_size);
     memset(iv, '0', iv_size);
-    
+    unsigned char* key = (unsigned char*)alloca(iv_size);
     for(uint64_t i = 0; i < block_num; i++) {
-      unsigned char* key = (unsigned char*)alloca(iv_size);
+      
       if (RAND_bytes((unsigned char *)key, single_iv_size) != 1) {
         lderr(m_image_ctx->cct) << "cannot generate random bytes" << dendl;
       }
       uint64_t key_offset = i * single_iv_size;
       memcpy(iv+key_offset, key, single_iv_size);
     }
-
-    // cout << "iv: ";
-    // for(int i = 0; i < iv_size; i++) {
-    //   cout << (int)iv[i];
-    // }
-    // cout << std::endl;
-
-    // cout << "iv in write: 0x";
-    // for(int i = 0; i < iv_size; i++) {
-    //   cout << std::hex << (int)iv[i];
-    // }
-    // cout << std::endl;
-
     auto r = m_crypto->rand_iv_encrypt(
             &data,
             io::util::get_file_offset(m_image_ctx, object_no, object_off), iv, iv_size);
-
-    // auto r = m_crypto->encrypt(
-    //         &data,
-    //         io::util::get_file_offset(m_image_ctx, object_no, object_off));
-
-
-    // *dispatch_result = r == 0 ? io::DISPATCH_RESULT_CONTINUE
-    //                           : io::DISPATCH_RESULT_COMPLETE;
 
     if(r != 0) {
       on_dispatched->complete(r);

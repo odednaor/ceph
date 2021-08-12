@@ -98,9 +98,7 @@ bool ObjectDispatch<I>::write_extents(
       uint64_t* journal_tid, DispatchResult* dispatch_result, 
       Context**on_finish, Context* on_dispatched) {
   auto cct = m_image_ctx->cct;
-  // cout << "object dispatch write" << std::endl;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " " << extents.front().first << "~" << extents.front().second.length() << dendl;
-  // ldout(cct,20) << "ObjectDispatch_write_extents" << dendl;
   *dispatch_result = DISPATCH_RESULT_COMPLETE;
   auto req = new ObjectWriteRequest<I>(m_image_ctx, object_no, extents, io_context, op_flags,
                                        write_flags, assert_version,

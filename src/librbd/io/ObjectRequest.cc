@@ -233,10 +233,8 @@ void ObjectReadRequest<I>::read_object() {
   image_locker.unlock();
 
   ldout(image_ctx->cct, 20) << "snap_id=" << read_snap_id << dendl;
-  
   neorados::ReadOp read_op;
   for (auto& extent: *this->m_extents) {
-    // cout << "read extent: " << extent << std::endl; 
     if (extent.length >= image_ctx->sparse_read_threshold_bytes) {
       read_op.sparse_read(extent.offset, extent.length, &extent.bl,
                           &extent.extent_map);
@@ -246,7 +244,6 @@ void ObjectReadRequest<I>::read_object() {
   }
   util::apply_op_flags(
     m_op_flags, image_ctx->get_read_flags(read_snap_id), &read_op);
-
   image_ctx->rados_api.execute(
     {data_object_name(this->m_ictx, this->m_object_no)},
     *this->m_io_context, std::move(read_op), nullptr,
@@ -259,8 +256,6 @@ template <typename I>
 void ObjectReadRequest<I>::handle_read_object(int r) {
   I *image_ctx = this->m_ictx;
   ldout(image_ctx->cct, 20) << "r=" << r << dendl;
-  ldout(image_ctx->cct, 20) << "got here handle_read_object" << r << dendl;
-  // cout << "handle_read_object: " << m_extents->front().bl << std::endl;
   if (m_version != nullptr) {
     ldout(image_ctx->cct, 20) << "version=" << *m_version << dendl;
   }
@@ -274,7 +269,6 @@ void ObjectReadRequest<I>::handle_read_object(int r) {
     this->finish(r);
     return;
   }
-
   this->finish(0);
 }
 
@@ -661,7 +655,6 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
-  cout << "Modified ceph write request" << std::endl;
   for(auto& extent: m_extents) {
     if (this->m_full_object) {
       wr->write_full(bufferlist{extent.second});
