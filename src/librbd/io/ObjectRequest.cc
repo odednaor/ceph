@@ -656,7 +656,7 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
   for(auto& extent: m_extents) {
-    if (this->m_full_object) {
+    if (m_extents.size() == 1 && this->m_full_object) {
       wr->write_full(bufferlist{extent.second});
     } else {
       wr->write(extent.first, bufferlist{extent.second});
