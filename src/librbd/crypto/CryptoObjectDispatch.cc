@@ -510,7 +510,6 @@ bool CryptoObjectDispatch<I>::write(
     const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
     Context** on_finish, Context* on_dispatched) {
- 
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << data_object_name(m_image_ctx, object_no) << " "
                  << object_off << "~" << data.length() << dendl;
@@ -527,7 +526,7 @@ bool CryptoObjectDispatch<I>::write(
     uint64_t iv_write_offset = object_size + crypto_unit_offset*single_iv_size;
     unsigned char* iv = (unsigned char*)alloca(iv_size);
     memset(iv, '0', iv_size);
-    unsigned char* key = (unsigned char*)alloca(iv_size);
+    unsigned char* key = (unsigned char*)alloca(single_iv_size);
     for(uint64_t i = 0; i < block_num; i++) {
       
       if (RAND_bytes((unsigned char *)key, single_iv_size) != 1) {
