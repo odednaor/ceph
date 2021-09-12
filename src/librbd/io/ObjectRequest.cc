@@ -242,6 +242,11 @@ void ObjectReadRequest<I>::read_object() {
       read_op.read(extent.offset, extent.length, &extent.bl);
     }
   }
+
+  // ceph::bufferlist* buffer_test();
+  read_op.get_xattr("123", &read_xattr);
+
+
   util::apply_op_flags(
     m_op_flags, image_ctx->get_read_flags(read_snap_id), &read_op);
   image_ctx->rados_api.execute(
@@ -269,6 +274,7 @@ void ObjectReadRequest<I>::handle_read_object(int r) {
     this->finish(r);
     return;
   }
+  cout <<"external attr: " << read_xattr.c_str() << std::endl;
   this->finish(0);
 }
 
@@ -655,14 +661,38 @@ void ObjectWriteRequest<I>::add_write_hint(neorados::WriteOp* wr) {
 
 template <typename I>
 void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
+  I *image_ctx = this->m_ictx;
+  uint64_t single_iv_size = 16;
+  auto object_size = image_ctx->get_object_size();
+
   for(auto& extent: m_extents) {
+    
+    if(extent.first >= object_size) {
+      for(uint64_t attribute_key = extent.first; attribute_key < extent.first + extent.second.length(); attribute_key+=single_iv_size) {
+        uint64_t iv_offset = attribute_key - object_size;
+        bufferptr p((char*) extent.second.c_str()+iv_offset, single_iv_size);
+        ceph::bufferlist buffer_test;
+        buffer_test.push_back(p);
+        wr->setxattr(std::to_string(attribute_key), bufferlist{buffer_test});
+      }
+      // continue;
+    }
+
     if (m_extents.size() == 1 && this->m_full_object) {
       wr->write_full(bufferlist{extent.second});
     } else {
       wr->write(extent.first, bufferlist{extent.second});
     }
-    util::apply_op_flags(m_op_flags, 0U, wr);
   }
+
+  unsigned char* test = (unsigned char*)alloca(single_iv_size);
+  memset(test, 'b', single_iv_size);
+  bufferptr p1((char*) test, single_iv_size);
+  ceph::bufferlist buffer_test1;
+  buffer_test1.push_back(p1);
+  wr->setxattr("1234", bufferlist{buffer_test1});
+
+  util::apply_op_flags(m_op_flags, 0U, wr);
 }
 
 template <typename I>

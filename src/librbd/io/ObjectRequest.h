@@ -136,10 +136,11 @@ private:
    */
 
   ReadExtents* m_extents;
+  ceph::bufferlist read_xattr;
+
   int m_op_flags;
   int m_read_flags;
   uint64_t* m_version;
-
   void read_object();
   void handle_read_object(int r);
 
