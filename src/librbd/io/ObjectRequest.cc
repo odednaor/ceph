@@ -221,6 +221,9 @@ void ObjectReadRequest<I>::send() {
 template <typename I>
 void ObjectReadRequest<I>::read_object() {
   I *image_ctx = this->m_ictx;
+  uint64_t single_iv_size = 16;
+  auto object_size = image_ctx->get_object_size();
+
 
   std::shared_lock image_locker{image_ctx->image_lock};
   auto read_snap_id = this->m_io_context->read_snap().value_or(CEPH_NOSNAP);
@@ -235,6 +238,16 @@ void ObjectReadRequest<I>::read_object() {
   ldout(image_ctx->cct, 20) << "snap_id=" << read_snap_id << dendl;
   neorados::ReadOp read_op;
   for (auto& extent: *this->m_extents) {
+    if(extent.offset >= object_size) {
+      int i = 0;
+      for(uint64_t attribute_key = extent.offset; attribute_key < extent.offset + extent.length; attribute_key+=single_iv_size) {
+        read_op.get_xattr(std::to_string(attribute_key), &read_xattrs[i]);
+        i++;
+      }
+      read_xattrs_length = i;
+      continue;
+    }
+
     if (extent.length >= image_ctx->sparse_read_threshold_bytes) {
       read_op.sparse_read(extent.offset, extent.length, &extent.bl,
                           &extent.extent_map);
@@ -242,10 +255,6 @@ void ObjectReadRequest<I>::read_object() {
       read_op.read(extent.offset, extent.length, &extent.bl);
     }
   }
-
-  // ceph::bufferlist* buffer_test();
-  read_op.get_xattr("123", &read_xattr);
-
 
   util::apply_op_flags(
     m_op_flags, image_ctx->get_read_flags(read_snap_id), &read_op);
@@ -260,6 +269,9 @@ void ObjectReadRequest<I>::read_object() {
 template <typename I>
 void ObjectReadRequest<I>::handle_read_object(int r) {
   I *image_ctx = this->m_ictx;
+
+  uint64_t single_iv_size = 16;
+
   ldout(image_ctx->cct, 20) << "r=" << r << dendl;
   if (m_version != nullptr) {
     ldout(image_ctx->cct, 20) << "version=" << *m_version << dendl;
@@ -274,7 +286,21 @@ void ObjectReadRequest<I>::handle_read_object(int r) {
     this->finish(r);
     return;
   }
-  cout <<"external attr: " << read_xattr.c_str() << std::endl;
+
+  if(m_extents->size() == 2) {
+    uint64_t full_iv_size = read_xattrs_length*single_iv_size;
+    unsigned char* full_iv = (unsigned char*)alloca(full_iv_size);
+    for(int i = 0; i < read_xattrs_length; i++) {
+      memcpy(full_iv + i*single_iv_size, read_xattrs[i].c_str(), single_iv_size);
+    }
+    bufferptr p((char*) full_iv, full_iv_size);
+    ceph::bufferlist bl;
+    bl.push_back(p);
+    m_extents->back().bl = bl;
+    read_xattrs_length = 0;
+  }
+
+
   this->finish(0);
 }
 
@@ -671,11 +697,11 @@ void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
       for(uint64_t attribute_key = extent.first; attribute_key < extent.first + extent.second.length(); attribute_key+=single_iv_size) {
         uint64_t iv_offset = attribute_key - object_size;
         bufferptr p((char*) extent.second.c_str()+iv_offset, single_iv_size);
-        ceph::bufferlist buffer_test;
-        buffer_test.push_back(p);
-        wr->setxattr(std::to_string(attribute_key), bufferlist{buffer_test});
+        ceph::bufferlist bl;
+        bl.push_back(p);
+        wr->setxattr(std::to_string(attribute_key), bufferlist{bl});
       }
-      // continue;
+      continue;
     }
 
     if (m_extents.size() == 1 && this->m_full_object) {
@@ -685,12 +711,6 @@ void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
     }
   }
 
-  unsigned char* test = (unsigned char*)alloca(single_iv_size);
-  memset(test, 'b', single_iv_size);
-  bufferptr p1((char*) test, single_iv_size);
-  ceph::bufferlist buffer_test1;
-  buffer_test1.push_back(p1);
-  wr->setxattr("1234", bufferlist{buffer_test1});
 
   util::apply_op_flags(m_op_flags, 0U, wr);
 }
