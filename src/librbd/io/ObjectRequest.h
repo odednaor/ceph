@@ -136,9 +136,13 @@ private:
    */
 
   ReadExtents* m_extents;
-  ceph::bufferlist read_xattrs[1024];
-  int read_xattrs_length;
- 
+  // ceph::bufferlist read_xattrs[1024];
+  // int read_xattrs_length;
+  
+  boost::container::flat_map<std::string, ceph::buffer::list> kv_map;
+  boost::container::flat_set<std::string> keys;
+
+
   int m_op_flags;
   int m_read_flags;
   uint64_t* m_version;

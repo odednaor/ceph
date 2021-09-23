@@ -23,6 +23,7 @@
 #include "librbd/io/Utils.h"
 
 #include <boost/optional.hpp>
+#include <boost/container/flat_map.hpp>
 
 #define dout_subsys ceph_subsys_rbd
 #undef dout_prefix
@@ -241,10 +242,15 @@ void ObjectReadRequest<I>::read_object() {
     if(extent.offset >= object_size) {
       int i = 0;
       for(uint64_t attribute_key = extent.offset; attribute_key < extent.offset + extent.length; attribute_key+=single_iv_size) {
-        read_op.get_xattr(std::to_string(attribute_key), &read_xattrs[i]);
+        // read_op.get_xattr(std::to_string(attribute_key), &read_xattrs[i]);
         i++;
+
+      boost::container::flat_map<std::string, ceph::buffer::list> map;
+      boost::system::error_code ec;
+      keys.insert(std::to_string(attribute_key));
+      read_op.get_omap_vals_by_keys(keys, &kv_map, &ec); //(std::nullopt, std::nullopt, 100, &map, &done, &ec);
       }
-      read_xattrs_length = i;
+      // read_xattrs_length = i;
       continue;
     }
 
@@ -271,6 +277,7 @@ void ObjectReadRequest<I>::handle_read_object(int r) {
   I *image_ctx = this->m_ictx;
 
   uint64_t single_iv_size = 16;
+  // auto object_size = image_ctx->get_object_size();
 
   ldout(image_ctx->cct, 20) << "r=" << r << dendl;
   if (m_version != nullptr) {
@@ -288,16 +295,21 @@ void ObjectReadRequest<I>::handle_read_object(int r) {
   }
 
   if(m_extents->size() == 2) {
-    uint64_t full_iv_size = read_xattrs_length*single_iv_size;
+    uint64_t full_iv_size = kv_map.size()*single_iv_size;
     unsigned char* full_iv = (unsigned char*)alloca(full_iv_size);
-    for(int i = 0; i < read_xattrs_length; i++) {
-      memcpy(full_iv + i*single_iv_size, read_xattrs[i].c_str(), single_iv_size);
+    int i = 0;
+    for(auto it=kv_map.begin(); it != kv_map.end(); it++) {
+      memcpy(full_iv + i*single_iv_size, it->second.c_str(), single_iv_size);
+      i++;
     }
+    keys.clear();
+    kv_map.clear();
+
     bufferptr p((char*) full_iv, full_iv_size);
     ceph::bufferlist bl;
     bl.push_back(p);
     m_extents->back().bl = bl;
-    read_xattrs_length = 0;
+    // read_xattrs_length = 0;
   }
 
 
@@ -699,7 +711,19 @@ void ObjectWriteRequest<I>::add_write_ops(neorados::WriteOp* wr) {
         bufferptr p((char*) extent.second.c_str()+iv_offset, single_iv_size);
         ceph::bufferlist bl;
         bl.push_back(p);
-        wr->setxattr(std::to_string(attribute_key), bufferlist{bl});
+        // wr->setxattr(std::to_string(attribute_key), bufferlist{bl});
+
+        std::stringstream ss;
+        for(int i=0; i<16; i++) {
+          ss << std::hex << (int) (extent.second.c_str())[i];
+        }
+        std::string mystr = ss.str();
+
+        boost::container::flat_map<std::string, ceph::buffer::list> map;
+        std::pair<std::string, ceph::buffer::list> kv(std::to_string(attribute_key), bufferlist{bl});
+        map.insert(kv);
+        wr->set_omap(map);
+
       }
       continue;
     }
